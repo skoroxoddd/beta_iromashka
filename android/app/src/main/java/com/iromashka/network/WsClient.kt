@@ -42,7 +42,7 @@ object TransportObfuscator {
         check(data.size <= 65536) { "Payload too large: ${data.size}" }
         val nonce = Random.Default.nextBytes(12)
         val cipher = Cipher.getInstance("ChaCha20")
-        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(sessionKey, "ChaCha20"), ChaCha20ParameterSpec(nonce))
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(sessionKey, "ChaCha20"), ChaCha20ParameterSpec(nonce, 0))
         val encrypted = cipher.doFinal(data)
 
         val paddingLen = Random.Default.nextInt(0, 65)
@@ -64,7 +64,7 @@ object TransportObfuscator {
         val ciphertext = data.sliceArray(15 until data.size)
         return runCatching {
             val cipher = Cipher.getInstance("ChaCha20")
-            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(sessionKey, "ChaCha20"), ChaCha20ParameterSpec(nonce))
+            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(sessionKey, "ChaCha20"), ChaCha20ParameterSpec(nonce, 0))
             cipher.doFinal(ciphertext)
         }.getOrNull()
     }
