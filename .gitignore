@@ -1,24 +1,18 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Tauri
+src-tauri/target/
+src-tauri/gen/
 
-node_modules
-dist
-dist-ssr
-*.local
+# Android
+android/app/build/
+android/app/iromashka-release.jks
+android/.gradle/
+android/.idea/
+android/local.properties
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# IDE
+.vscode/
+*.iml
+
+# OS
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+Thumbs.db

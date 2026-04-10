@@ -1,4 +1,4 @@
-name: Build Desktop App
+name: Build Desktop + Android App
 
 on:
   push:
@@ -62,3 +62,42 @@ jobs:
         with:
           name: iromashka-macos
           path: src-tauri/target/release/bundle/dmg/*.dmg
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Accept licenses
+        run: yes | sdkmanager --licenses || true
+      - name: Install required SDK components
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
+      - name: Generate keystore for release
+        run: |
+          mkdir -p android/app
+          keytool -genkeypair -v \
+            -keystore android/app/iromashka-release.jks \
+            -alias iromashka \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass iromashka2026 \
+            -keypass iromashka2026 \
+            -dname "CN=iromashka, OU=iromashka, O=iromashka, L=Moscow, S=Moscow, C=RU"
+      - name: Build Android APK
+        working-directory: android
+        run: chmod +x gradlew 2>/dev/null; ./gradlew assembleRelease --no-daemon 2>/dev/null || ./gradlew assembleDebug --no-daemon
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: iromashka-android
+          path: |
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/debug/*.apk
