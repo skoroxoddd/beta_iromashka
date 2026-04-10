@@ -80,20 +80,13 @@ jobs:
         run: |
           sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
       - name: Generate keystore for release
+        working-directory: android
         run: |
-          mkdir -p android/app
-          keytool -genkeypair -v \
-            -keystore android/app/iromashka-release.jks \
-            -alias iromashka \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass iromashka2026 \
-            -keypass iromashka2026 \
-            -dname "CN=iromashka, OU=iromashka, O=iromashka, L=Moscow, S=Moscow, C=RU"
+          mkdir -p app
+          keytool -genkeypair -v -keystore app/iromashka-release.jks -alias iromashka -keyalg RSA -keysize 2048 -validity 10000 -storepass iromashka2026 -keypass iromashka2026 -dname 'CN=iromashka,OU=iromashka,O=iromashka,L=Moscow,ST=Moscow,C=RU'
       - name: Build Android APK
         working-directory: android
-        run: chmod +x gradlew 2>/dev/null; ./gradlew assembleRelease --no-daemon 2>/dev/null || ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
