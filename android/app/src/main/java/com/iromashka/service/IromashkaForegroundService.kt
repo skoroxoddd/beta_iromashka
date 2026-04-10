@@ -52,6 +52,21 @@ class IromashkaForegroundService : Service() {
         private const val CHANNEL_MSG_ID = "iromashka_messages"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_STOP = "stop"
+        private const val ACTION_START = "start"
+        private const val EXTRA_PIN = "pin"
+
+        fun startIntent(ctx: Context, pin: String): Intent {
+            return Intent(ctx, IromashkaForegroundService::class.java).apply {
+                action = ACTION_START
+                putExtra(EXTRA_PIN, pin)
+            }
+        }
+
+        fun stopIntent(ctx: Context): Intent {
+            return Intent(ctx, IromashkaForegroundService::class.java).apply {
+                action = ACTION_STOP
+            }
+        }
 
         fun buildNotification(ctx: Context, text: String): Notification {
             val intent = Intent(ctx, MainActivity::class.java)

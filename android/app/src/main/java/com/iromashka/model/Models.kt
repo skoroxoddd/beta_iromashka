@@ -160,3 +160,23 @@ data class SendRequest(
 )
 
 data class SendResponse(val status: String)
+
+// ── Themes ──
+
+data class ThemeInfo(
+    @SerializedName("name") val name: String = "",
+    @SerializedName("version") val version: String = "",
+    @SerializedName("author") val author: String = "",
+    @SerializedName("primaryColor") val primaryColor: Long = 0xFF27AE60L,
+    @SerializedName("palette") val palette: ThemePaletteData? = null
+)
+
+data class ThemePaletteData(
+    @SerializedName("background") val background: Long? = null,
+    @SerializedName("surface") val surface: Long? = null,
+    @SerializedName("bubbleOut") val bubbleOut: Long? = null,
+    @SerializedName("bubbleIn") val bubbleIn: Long? = null,
+    @SerializedName("textPrimary") val textPrimary: Long? = null,
+    @SerializedName("textSecondary") val textSecondary: Long? = null,
+    @SerializedName("accent") val accent: Long? = null
+)
