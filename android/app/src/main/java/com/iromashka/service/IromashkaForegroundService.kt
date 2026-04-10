@@ -21,7 +21,7 @@ class IromashkaForegroundService : Service() {
         }
 
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(this, Работает))
+        startForeground(NOTIFICATION_ID, buildNotification(this, "Работает"))
 
         return START_STICKY
     }
@@ -30,15 +30,15 @@ class IromashkaForegroundService : Service() {
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
-            CHANNEL_ID, АйРомашка — соединение,
+            CHANNEL_ID, "АйРомашка — соединение",
             NotificationManager.IMPORTANCE_LOW
-        ).apply { description = Статус подключения }
+        ).apply { description = "Статус подключения" }
 
         val msgChannel = NotificationChannel(
-            CHANNEL_MSG_ID, АйРомашка — сообщения,
+            CHANNEL_MSG_ID, "АйРомашка — сообщения",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = Новые сообщения
+            description = "Новые сообщения"
             enableVibration(true)
         }
 
@@ -48,10 +48,10 @@ class IromashkaForegroundService : Service() {
     }
 
     companion object {
-        private const val CHANNEL_ID = iromashka_connection
-        private const val CHANNEL_MSG_ID = iromashka_messages
+        private const val CHANNEL_ID = "iromashka_connection"
+        private const val CHANNEL_MSG_ID = "iromashka_messages"
         private const val NOTIFICATION_ID = 1
-        private const val ACTION_STOP = stop
+        private const val ACTION_STOP = "stop"
 
         fun buildNotification(ctx: Context, text: String): Notification {
             val intent = Intent(ctx, MainActivity::class.java)
@@ -65,11 +65,11 @@ class IromashkaForegroundService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
             return NotificationCompat.Builder(ctx, CHANNEL_ID)
-                .setContentTitle(АйРомашка)
+                .setContentTitle("АйРомашка")
                 .setContentText(text)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentIntent(pi)
-                .addAction(android.R.drawable.ic_menu_close_clear_cancel, Отключить, stopPi)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Отключить", stopPi)
                 .setOngoing(true)
                 .build()
         }
