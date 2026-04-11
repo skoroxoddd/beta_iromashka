@@ -80,3 +80,18 @@ impl CipherSession {
 }
 
 use rand::rngs::OsRng;
+
+/// Encode v1 plaintext frame: [0x49][0x52][0x01][len:4 LE][payload][padding]
+pub fn encode_v1(data: &[u8]) -> Vec<u8> {
+    let padding_len = (OsRng.next_u32() % 65) as usize;
+    let mut out = Vec::with_capacity(7 + data.len() + padding_len);
+    out.push(0x49);
+    out.push(0x52);
+    out.push(0x01);
+    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    out.extend_from_slice(data);
+    for _ in 0..padding_len {
+        out.push(OsRng.next_u32() as u8);
+    }
+    out
+}
