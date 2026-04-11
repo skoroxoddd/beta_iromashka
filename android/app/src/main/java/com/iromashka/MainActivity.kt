@@ -92,12 +92,14 @@ fun IromashkaNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
     NavHost(navController = navController, startDestination = startDest) {
 
         composable("login") {
+            val chatVm: com.iromashka.viewmodel.ChatViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
             LoginScreen(
                 viewModel = authVm,
                 onSuccess = { uin, pin ->
                     navController.navigate("contacts") {
                         popUpTo("login") { inclusive = true }
                     }
+                    chatVm.connectWs()
                     val svcIntent = IromashkaForegroundService.startIntent(ctx, pin)
                     ctx.startForegroundService(svcIntent)
                 },
@@ -106,12 +108,14 @@ fun IromashkaNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
         }
 
         composable("register") {
+            val chatVm: com.iromashka.viewmodel.ChatViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
             RegisterScreen(
                 viewModel = authVm,
                 onSuccess = { uin, pin ->
                     navController.navigate("contacts") {
                         popUpTo("register") { inclusive = true }
                     }
+                    chatVm.connectWs()
                     val svcIntent = IromashkaForegroundService.startIntent(ctx, pin)
                     ctx.startForegroundService(svcIntent)
                 },
