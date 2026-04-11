@@ -48,6 +48,7 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+    // Keep for compatibility with AGP 8.7.3 + Kotlin 2.0
 
     packaging {
         resources.excludes += "META-INF/DEPENDENCIES"
@@ -86,12 +87,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }
 
-// Compose compiler for Kotlin 1.9
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    kotlinOptions {
-        freeCompilerArgs += listOf(
-            "-P",
-            "plugin:androidx.compose.compiler.plugins.kotlin:suppressKotlinVersionCompatibilityCheck=true"
-        )
-    }
+// Compose compiler (Kotlin 2.0 has built-in Compose compiler)
+composeCompiler {
+    enableStrongSkippingMode = true
 }
