@@ -1,18 +1,21 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "iromashka-desktop",
+  "productName": "АйРомашка",
   "version": "0.1.0",
-  "identifier": "com.root.iromashka-desktop",
+  "identifier": "com.iromashka.desktop",
   "build": {
-    "frontendDist": "../src"
+    "frontendDist": "../src",
+    "devUrl": "https://iromashka.ru/app"
   },
   "app": {
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "iromashka-desktop",
-        "width": 800,
-        "height": 600
+        "title": "АйРомашка",
+        "width": 1024,
+        "height": 700,
+        "resizable": true,
+        "url": "https://iromashka.ru/app"
       }
     ],
     "security": {
