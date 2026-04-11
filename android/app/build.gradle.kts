@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
+    id("org.jetbrains.kotlin.plugin.compose") version "2.0.0"
 }
 
 android {
@@ -87,7 +88,4 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }
 
-// Compose compiler (Kotlin 2.0 has built-in Compose compiler)
-composeCompiler {
-    enableStrongSkippingMode = true
-}
+// Compose compiler is provided by org.jetbrains.kotlin.plugin.compose (Kotlin 2.0)
