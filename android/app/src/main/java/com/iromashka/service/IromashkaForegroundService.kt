@@ -12,7 +12,7 @@ import androidx.core.app.NotificationCompat
 import com.iromashka.MainActivity
 import com.iromashka.R
 import com.iromashka.crypto.CryptoManager
-import com.iromashka.model.WsEvent
+import com.iromashka.network.WsEvent
 import com.iromashka.network.WsClient
 import com.iromashka.storage.AppDatabase
 import com.iromashka.storage.MessageEntity
