@@ -81,13 +81,13 @@ class IromashkaForegroundService : Service() {
                 updateNotification("Переподключение...")
             }
             is WsEvent.MessageReceived -> {
-                Log.d(TAG, "Message from ${event.envelope.sender_uin}")
-                // Save to DB (encrypted if we can't decrypt)
+                val env = (event as WsEvent.MessageReceived).envelope
+                Log.d(TAG, "Message from ${env.sender_uin}")
                 val msg = MessageEntity(
-                    senderUin = event.envelope.sender_uin,
-                    receiverUin = event.envelope.receiver_uin,
-                    plaintext = event.envelope.ciphertext, // encrypted, will be decrypted by ChatViewModel
-                    timestamp = if (event.envelope.timestamp > 0) event.envelope.timestamp * 1000 else System.currentTimeMillis(),
+                    senderUin = env.sender_uin,
+                    receiverUin = env.receiver_uin,
+                    plaintext = env.ciphertext,
+                    timestamp = if (env.timestamp > 0) env.timestamp * 1000 else System.currentTimeMillis(),
                     isMine = false
                 )
                 AppDatabase.getInstance(this).messageDao().insert(msg)
@@ -98,11 +98,11 @@ class IromashkaForegroundService : Service() {
                 updateNotification("Ошибка авторизации")
             }
             is WsEvent.Kicked -> {
-                Log.w(TAG, "Kicked: ${event.reason}")
+                Log.w(TAG, "Kicked: ${(event as WsEvent.Kicked).reason}")
                 updateNotification("Сессия завершена")
             }
             is WsEvent.Error -> {
-                Log.e(TAG, "WS error: ${event.msg}")
+                Log.e(TAG, "WS error: ${(event as WsEvent.Error).msg}")
                 updateNotification("Ошибка соединения")
             }
             else -> {}
