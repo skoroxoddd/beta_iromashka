@@ -87,8 +87,6 @@ fn cmd_decrypt_message(_state: tauri::State<'_, AppState>, _uin: u32, sender_pub
 // ── App State ─────────────────────────────────────────────────────────────────
 
 use dashmap::DashMap;
-use std::sync::Arc;
-use tokio::sync::mpsc;
 
 pub struct AppState {
     pub base_url: String,
