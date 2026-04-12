@@ -48,7 +48,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 wrappedPriv = CryptoManager.wrapPrivateKey(kp.private, pin)
                 val deviceId = getOrCreateDeviceId()
 
-                val resp = api.register(RegisterRequest(phone, pin, pubKeyB64, deviceId))
+                val resp = api.register(RegisterRequest(phone, pin, pubKeyB64, deviceId, wrappedPriv))
 
                 // Новая регистрация — старая история не нужна
                 AppDatabase.getInstance(ctx).messageDao().deleteAll()

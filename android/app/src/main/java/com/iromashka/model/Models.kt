@@ -8,7 +8,8 @@ data class RegisterRequest(
     @SerializedName("phone") val phone: String,
     val pin: String,
     val public_key: String,
-    val device_id: String? = null
+    val device_id: String? = null,
+    val encrypted_key: String? = null
 )
 
 data class RegisterResponse(
@@ -23,6 +24,7 @@ data class LoginRequest(
 )
 
 data class LoginResponse(
+    val encrypted_key: String? = null,
     val token: String,
     val uin: Long,
     val refresh_token: String = ""
