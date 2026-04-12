@@ -6,10 +6,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import com.iromashka.App
 import com.iromashka.crypto.CryptoManager
 import com.iromashka.model.*
 import com.iromashka.network.ApiService
-import com.iromashka.network.WsClient
 import com.iromashka.network.WsEvent
 import com.iromashka.storage.*
 
@@ -30,10 +30,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val api = ApiService.api
     private val db = AppDatabase.getInstance(ctx)
     private val msgDao = db.messageDao()
+    private val wsHolder get() = App.instance.wsHolder
 
-    private var wsClient: WsClient? = null
     private var myPrivKey: java.security.PrivateKey? = null
-
     private val pubkeyCache = mutableMapOf<Long, String>()
 
     private val _wsConnected = MutableStateFlow(false)
@@ -42,14 +41,23 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val _authFailed = MutableStateFlow(false)
     val authFailed: StateFlow<Boolean> = _authFailed.asStateFlow()
 
-    // Status tracking
     private val _statuses = MutableStateFlow<Map<Long, String>>(emptyMap())
     val statuses: StateFlow<Map<Long, String>> = _statuses.asStateFlow()
 
-    fun setUserStatus(status: String) {
+    // Current chat
+    private var _currentChatUin: Long = -1
+    private val _messagesState = MutableStateFlow<List<UIMessage>>(emptyList())
+    val messagesState: StateFlow<List<UIMessage>> = _messagesState.asStateFlow()
+
+    init {
+        // Listen to WsHolder events
         viewModelScope.launch {
-            wsClient?.sendStatusChange(status)
+            wsHolder.events.collect { event -> handleWsEvent(event) }
         }
+    }
+
+    fun setUserStatus(status: String) {
+        wsHolder.sendStatusChange(status)
     }
 
     fun updateContactStatus(uin: Long, status: String) {
@@ -57,11 +65,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             _statuses.value = _statuses.value + (uin to status)
         }
     }
-
-    // Current chat
-    private var _currentChatUin: Long = -1
-    private val _messagesState = MutableStateFlow<List<UIMessage>>(emptyList())
-    val messagesState: StateFlow<List<UIMessage>> = _messagesState.asStateFlow()
 
     fun openChat(chatUin: Long) {
         _currentChatUin = chatUin
@@ -81,8 +84,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ── Session ──
-
     fun initSession(pin: String): Boolean {
         val wrapped = Prefs.getWrappedPriv(ctx)
         if (wrapped.isEmpty()) {
@@ -96,26 +97,22 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun connectWs() {
+        val uin = Prefs.getUin(ctx)
         val token = Prefs.getToken(ctx)
-        if (Prefs.getUin(ctx) <= 0 || token.isEmpty()) return
-
-        wsClient?.disconnect()
-        wsClient = WsClient(
-            scope = viewModelScope,
-            uinProvider = { Prefs.getUin(ctx) },
-            tokenProvider = { Prefs.getToken(ctx) }
-        ).also { ws ->
-            viewModelScope.launch {
-                ws.events.collect { event -> handleWsEvent(event) }
-            }
-            ws.connect()
-        }
+        if (uin <= 0 || token.isEmpty()) return
+        wsHolder.connect(uin, token)
     }
 
     private suspend fun handleWsEvent(event: WsEvent) {
         when (event) {
-            is WsEvent.Connected -> _wsConnected.value = true
-            is WsEvent.Disconnected -> _wsConnected.value = false
+            is WsEvent.Connected -> {
+                Log.d("ChatVM", "WS connected")
+                _wsConnected.value = true
+            }
+            is WsEvent.Disconnected -> {
+                Log.d("ChatVM", "WS disconnected")
+                _wsConnected.value = false
+            }
             is WsEvent.AuthFailed -> {
                 _wsConnected.value = false
                 _authFailed.value = true
@@ -126,10 +123,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             is WsEvent.MsgAckReceived -> { /* update delivery status */ }
             is WsEvent.Kicked -> {
                 Log.w("ChatVM", "Kicked: ${event.reason}")
-                wsClient?.disconnect()
                 _authFailed.value = true
             }
-            is WsEvent.Error -> _wsConnected.value = false
+            is WsEvent.Error -> {
+                Log.e("ChatVM", "WS error: ${event.msg}")
+                _wsConnected.value = false
+            }
             is WsEvent.StatusChanged -> {
                 updateContactStatus(event.senderUin, event.status)
             }
@@ -137,12 +136,24 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun handleIncomingMessage(envelope: WsEnvelope) {
-        val privKey = myPrivKey ?: return
-        val myUin = Prefs.getUin(ctx)
+        val privKey = myPrivKey
+        if (privKey == null) {
+            // No key — save encrypted text
+            val msg = MessageEntity(
+                senderUin = envelope.sender_uin,
+                receiverUin = envelope.receiver_uin,
+                plaintext = envelope.ciphertext,
+                timestamp = if (envelope.timestamp > 0) envelope.timestamp * 1000 else System.currentTimeMillis(),
+                isMine = false
+            )
+            msgDao.insert(msg)
+            return
+        }
 
         val plaintext = CryptoManager.decryptMessage(envelope.ciphertext, privKey)
             ?: run { Log.w("ChatVM", "Decrypt failed for ${envelope.sender_uin}"); return }
 
+        val myUin = Prefs.getUin(ctx)
         val isOutgoing = envelope.sender_uin == myUin
 
         val msg = MessageEntity(
@@ -153,14 +164,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             isMine = isOutgoing
         )
         msgDao.insert(msg)
-
-        // Send ack
-        wsClient?.sendMsgAck(envelope.sender_uin, envelope.timestamp, "Delivered")
+        wsHolder.sendReadReceipt(envelope.sender_uin, envelope.timestamp)
     }
 
     fun disconnectWs() {
-        wsClient?.disconnect()
-        wsClient = null
         _wsConnected.value = false
     }
 
@@ -174,8 +181,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             runCatching {
                 val recipPub = getPublicKey(toUin)
                 val ciphertext = CryptoManager.encryptMessage(text, recipPub)
-
-                wsClient?.sendPersonalMessage(toUin, ciphertext)
+                wsHolder.sendMessage(toUin, ciphertext)
 
                 msgDao.insert(MessageEntity(
                     senderUin = myUin,
@@ -190,26 +196,24 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun sendTyping(toUin: Long, isTyping: Boolean) {
-        wsClient?.sendTyping(toUin, isTyping)
+    // ── Contacts ──
+
+    fun getContacts(): Flow<List<Contact>> = db.contactDao().getAllContacts()
+
+    fun addContact(uin: Long, nickname: String) {
+        viewModelScope.launch {
+            db.contactDao().insert(ContactEntity(uin, nickname))
+        }
     }
 
-    // ── Public key cache ──
-
-    private suspend fun getPublicKey(uin: Long): java.security.PublicKey {
-        pubkeyCache[uin]?.let { return CryptoManager.importPublicKey(it) }
-        val resp = api.getPubKey(uin)
-        pubkeyCache[uin] = resp.pubkey
-        return CryptoManager.importPublicKey(resp.pubkey)
+    fun removeContact(uin: Long) {
+        viewModelScope.launch {
+            db.contactDao().delete(uin)
+        }
     }
 
-    // ── Contact discovery ──
-
-    suspend fun discoverContacts(phones: List<String>): List<DiscoveredContactItem> {
-        val token = Prefs.getToken(ctx) ?: return emptyList()
-        return runCatching {
-            api.discoverContacts("Bearer $token", DiscoverRequest(phones))
-        }.getOrElse { emptyList() }
+    fun discoverContacts(phones: List<String>): Flow<List<DiscoveredContactItem>> = flow {
+        emit(api.discoverContacts(phones))
     }
 
     // ── Groups ──
@@ -218,77 +222,21 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     val groups: StateFlow<List<GroupItem>> = _groups.asStateFlow()
 
     fun loadGroups() {
-        val token = Prefs.getToken(ctx) ?: return
         viewModelScope.launch {
             runCatching {
-                _groups.value = api.listGroups("Bearer $token")
+                _groups.value = api.listGroups("Bearer ${Prefs.getToken(ctx)}")
             }
         }
     }
 
-    fun createGroup(name: String, memberUins: List<Long>) {
-        val token = Prefs.getToken(ctx) ?: return
-        viewModelScope.launch {
-            runCatching {
-                api.createGroup("Bearer $token", CreateGroupRequest(name, memberUins))
-                loadGroups()
-            }
-        }
-    }
+    // ── PubKey ──
 
-    fun sendGroupMessage(groupId: Long, text: String) {
-        val privKey = myPrivKey ?: return
-        val myUin = Prefs.getUin(ctx)
-
-        viewModelScope.launch {
-            runCatching {
-                val myPub = CryptoManager.importPublicKey(Prefs.getPubKey(ctx))
-                val ciphertext = CryptoManager.encryptMessage(text, myPub)
-                wsClient?.sendGroupMessage(groupId, ciphertext)
-                msgDao.insert(MessageEntity(
-                    senderUin = myUin,
-                    receiverUin = 0,
-                    plaintext = "[Группа #$groupId] $text",
-                    timestamp = System.currentTimeMillis(),
-                    isMine = true,
-                    isGroup = true,
-                    groupId = groupId
-                ))
-            }
-        }
-    }
-
-    fun addGroupMember(groupId: Long, uin: Long) {
-        val token = Prefs.getToken(ctx) ?: return
-        viewModelScope.launch {
-            runCatching {
-                api.addGroupMember("Bearer $token", groupId, AddMemberBody(uin))
-            }
-        }
-    }
-
-    // ── Contacts list ──
-
-    fun getContacts(): Flow<List<Contact>> {
-        val myUin = Prefs.getUin(ctx)
-        return msgDao.getRecentChats(myUin).map { entities ->
-            entities.mapNotNull { e ->
-                val partnerUin = if (e.senderUin == myUin) e.receiverUin else e.senderUin
-                if (partnerUin <= 0) return@mapNotNull null
-                Contact(
-                    uin = partnerUin,
-                    nickname = "UIN $partnerUin",
-                    isOnline = false,
-                    unread = 0,
-                    lastMessage = e.plaintext.take(50),
-                    lastMessageTime = e.timestamp
-                )
-            }
-        }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        disconnectWs()
+    private suspend fun getPublicKey(uin: Long): String {
+        pubkeyCache[uin]?.let { return it }
+        return runCatching {
+            val resp = api.getPubKey(uin)
+            pubkeyCache[uin] = resp.pubkey
+            resp.pubkey
+        }.getOrElse { "" }
     }
 }
