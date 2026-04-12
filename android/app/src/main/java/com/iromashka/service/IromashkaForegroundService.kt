@@ -11,19 +11,119 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.iromashka.MainActivity
 import com.iromashka.R
+import com.iromashka.crypto.CryptoManager
+import com.iromashka.model.WsEvent
+import com.iromashka.network.WsClient
+import com.iromashka.storage.AppDatabase
+import com.iromashka.storage.MessageEntity
+import com.iromashka.storage.Prefs
+import kotlinx.coroutines.*
+import android.util.Log
 
 class IromashkaForegroundService : Service() {
 
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var wsClient: WsClient? = null
+    private var myPrivKey: java.security.PrivateKey? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopService()
             return START_NOT_STICKY
         }
 
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(this, "Работает"))
+        startForeground(NOTIFICATION_ID, buildNotification(this, "Подключение..."))
+
+        // Connect WebSocket
+        val uin = Prefs.getUin(this)
+        val token = Prefs.getToken(this)
+        if (uin > 0 && token.isNotEmpty()) {
+            connectWs(uin, token)
+        } else {
+            Log.w(TAG, "No credentials for WS")
+            stopSelf()
+        }
 
         return START_STICKY
+    }
+
+    private fun connectWs(uin: Long, token: String) {
+        // Try load private key
+        val wrapped = Prefs.getWrappedPriv(this)
+        if (wrapped.isNotEmpty()) {
+            // We don't have PIN in service — key must be loaded from memory or we skip E2E
+            // For now, WS will receive encrypted messages but can't decrypt
+            // Decryption happens when ChatViewModel is active
+        }
+
+        wsClient = WsClient(
+            scope = serviceScope,
+            uinProvider = { uin },
+            tokenProvider = { token }
+        ).also { ws ->
+            serviceScope.launch {
+                ws.events.collect { event -> handleWsEvent(event) }
+            }
+            ws.connect()
+            updateNotification("Подключено")
+        }
+    }
+
+    private suspend fun handleWsEvent(event: WsEvent) {
+        when (event) {
+            is WsEvent.Connected -> {
+                Log.d(TAG, "WS connected")
+                updateNotification("Подключено")
+            }
+            is WsEvent.Disconnected -> {
+                Log.d(TAG, "WS disconnected")
+                updateNotification("Переподключение...")
+            }
+            is WsEvent.MessageReceived -> {
+                Log.d(TAG, "Message from ${event.envelope.sender_uin}")
+                // Save to DB (encrypted if we can't decrypt)
+                val msg = MessageEntity(
+                    senderUin = event.envelope.sender_uin,
+                    receiverUin = event.envelope.receiver_uin,
+                    plaintext = event.envelope.ciphertext, // encrypted, will be decrypted by ChatViewModel
+                    timestamp = if (event.envelope.timestamp > 0) event.envelope.timestamp * 1000 else System.currentTimeMillis(),
+                    isMine = false
+                )
+                AppDatabase.getInstance(this).messageDao().insert(msg)
+                updateNotification("Новое сообщение")
+            }
+            is WsEvent.AuthFailed -> {
+                Log.w(TAG, "WS auth failed")
+                updateNotification("Ошибка авторизации")
+            }
+            is WsEvent.Kicked -> {
+                Log.w(TAG, "Kicked: ${event.reason}")
+                updateNotification("Сессия завершена")
+            }
+            is WsEvent.Error -> {
+                Log.e(TAG, "WS error: ${event.msg}")
+                updateNotification("Ошибка соединения")
+            }
+            else -> {}
+        }
+    }
+
+    private fun updateNotification(text: String) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(NOTIFICATION_ID, buildNotification(this, text))
+    }
+
+    private fun stopService() {
+        wsClient?.disconnect()
+        wsClient = null
+        serviceScope.cancel()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        stopService()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -48,6 +148,7 @@ class IromashkaForegroundService : Service() {
     }
 
     companion object {
+        private const val TAG = "ForegroundService"
         private const val CHANNEL_ID = "iromashka_connection"
         private const val CHANNEL_MSG_ID = "iromashka_messages"
         private const val NOTIFICATION_ID = 1
