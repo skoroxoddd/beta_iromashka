@@ -26,17 +26,9 @@ sealed class WsEvent {
     object AuthFailed : WsEvent()
 }
 
-/**
- * Транспортная обфускация — поддержка 3 версий (v1, v2, v3).
- * v3 — ChaCha20 (рекомендуется)
- * v2 — XOR (fallback)
- * v1 — Plaintext (legacy)
- */
 object TransportObfuscator {
 
     private val MAGIC_V1 = byteArrayOf(0x49.toByte(), 0x52.toByte())
-
-    // ── v3: ChaCha20 ──
 
     fun encodeV3(data: ByteArray, sessionKey: ByteArray): ByteArray {
         check(data.size <= 65536) { "Payload too large: ${data.size}" }
@@ -69,8 +61,6 @@ object TransportObfuscator {
         }.getOrNull()
     }
 
-    // ── v2: XOR ──
-
     fun decodeV2(data: ByteArray): ByteArray? {
         if (data.size < 8) return null
         if (data[2] != 0x02.toByte()) return null
@@ -84,8 +74,6 @@ object TransportObfuscator {
         return payload
     }
 
-    // ── v1: Plaintext ──
-
     fun decodeV1(data: ByteArray): ByteArray? {
         if (data.size < 7) return null
         if (data[0] != MAGIC_V1[0] || data[1] != MAGIC_V1[1]) return null
@@ -94,8 +82,6 @@ object TransportObfuscator {
         if (len > 65536 || data.size < 7 + len) return null
         return data.copyOfRange(7, 7 + len)
     }
-
-    // ── Encode (always v1 for outgoing, server handles all) ──
 
     fun encode(data: ByteArray): ByteArray {
         check(data.size <= 65536) { "Payload too large: ${data.size}" }
@@ -110,8 +96,6 @@ object TransportObfuscator {
         repeat(paddingLen) { buf.put(Random.Default.nextInt(256).toByte()) }
         return buf.array()
     }
-
-    // ── Decode (auto-detect version) ──
 
     fun decode(data: ByteArray, sessionKey: ByteArray? = null): ByteArray? {
         if (data.size < 7) return null
@@ -141,7 +125,6 @@ class WsClient(
     private var retryCount = 0
     private val maxRetries = 10
 
-    // Session key for ChaCha20 v3
     private var sessionKey: ByteArray? = null
 
     private val okHttpClient = OkHttpClient.Builder()
@@ -166,20 +149,12 @@ class WsClient(
         sessionKey = null
     }
 
-    // ── Sending ──
-
     fun sendPersonalMessage(receiverUin: Long, ciphertext: String) {
-        val envelope = WsEnvelope(
-            sender_uin = 0,
-            receiver_uin = receiverUin,
-            ciphertext = ciphertext,
-            timestamp = System.currentTimeMillis() / 1000
-        )
         sendTyped("Message", WsMessageData(
             sender_uin = 0,
             receiver_uin = receiverUin,
             ciphertext = ciphertext,
-            timestamp = envelope.timestamp
+            timestamp = System.currentTimeMillis() / 1000
         ))
     }
 
@@ -226,8 +201,6 @@ class WsClient(
         val byteString = okio.ByteString.of(*obfuscated)
         ws?.send(byteString) ?: Log.w(TAG, "WS not connected, dropping $type")
     }
-
-    // ── Listener ──
 
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -316,7 +289,6 @@ class WsClient(
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             Log.d(TAG, "WS closing: $code $reason")
-            webSocket.close(1000, null)
             if (code == 4001) {
                 scope.launch { _events.emit(WsEvent.AuthFailed) }
             } else {

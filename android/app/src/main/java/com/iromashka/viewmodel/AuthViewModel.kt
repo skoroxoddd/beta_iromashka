@@ -34,9 +34,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
     private fun getOrCreateDeviceId(): String {
         val existing = Prefs.getDeviceId(ctx)
         if (existing.isNotEmpty()) return existing
-        val newId = UUID.randomUUID().toString()
-        Prefs.saveSession(ctx, uin = 0, nickname = "", token = "", refreshToken = "", wrappedPriv = "", pubKey = "", deviceId = newId)
-        return newId
+        return UUID.randomUUID().toString()
     }
 
     fun register(pin: String, phone: String) {
@@ -50,7 +48,6 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
 
                 val resp = api.register(RegisterRequest(phone, pin, pubKeyB64, deviceId, wrappedPriv))
 
-                // Новая регистрация — старая история не нужна
                 AppDatabase.getInstance(ctx).messageDao().deleteAll()
                 AppDatabase.getInstance(ctx).groupMessageDao().clearAllGroups()
 
@@ -62,7 +59,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                     refreshToken = resp.refresh_token,
                     wrappedPriv = wrappedPriv,
                     pubKey = pubKeyB64,
-                    deviceId = getOrCreateDeviceId()
+                    deviceId = deviceId
                 )
 
                 ApiService.setTokenProvider { Prefs.getToken(ctx) }
@@ -88,17 +85,16 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 var finalWrapped = savedWrapped
                 var finalPubKey = Prefs.getPubKey(ctx)
 
-                // First login from this device — generate new keypair
                 if (savedWrapped.isEmpty()) {
                     val kp = CryptoManager.generateKeyPair()
                     finalWrapped = CryptoManager.wrapPrivateKey(kp.private, pin)
                     finalPubKey = CryptoManager.exportPublicKey(kp.public)
-                    // Update server with new pubkey
                     runCatching {
                         api.updatePubKey("Bearer ${resp.token}", UpdatePubKeyRequest(finalPubKey))
                     }
                 }
 
+                val deviceId = getOrCreateDeviceId()
                 Prefs.saveSession(
                     ctx,
                     uin = resp.uin,
@@ -107,7 +103,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                     refreshToken = resp.refresh_token,
                     wrappedPriv = finalWrapped,
                     pubKey = finalPubKey,
-                    deviceId = getOrCreateDeviceId()
+                    deviceId = deviceId
                 )
 
                 ApiService.setTokenProvider { Prefs.getToken(ctx) }
@@ -139,7 +135,6 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 api.changePin("Bearer $token", ChangePinRequest(uin, oldPin, newPin))
                 Prefs.updateWrappedPriv(ctx, newWrapped)
 
-                // Смена PIN — старая история удаляется
                 AppDatabase.getInstance(ctx).messageDao().deleteAll()
                 AppDatabase.getInstance(ctx).groupMessageDao().clearAllGroups()
 

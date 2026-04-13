@@ -40,7 +40,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // FLAG_SECURE — защита от скриншотов
         window.setFlags(
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE
@@ -85,14 +84,12 @@ fun IromashkaNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
     LaunchedEffect(authState) {
         if (authState is com.iromashka.viewmodel.AuthState.Success) {
             val s = authState as com.iromashka.viewmodel.AuthState.Success
-            // Login/register completed — navigate handled by screen callbacks
         }
     }
 
     NavHost(navController = navController, startDestination = startDest) {
 
         composable("login") {
-            val chatVm: com.iromashka.viewmodel.ChatViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
             LoginScreen(
                 viewModel = authVm,
                 onSuccess = { uin, pin ->
@@ -108,7 +105,6 @@ fun IromashkaNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
         }
 
         composable("register") {
-            val chatVm: com.iromashka.viewmodel.ChatViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
             RegisterScreen(
                 viewModel = authVm,
                 onSuccess = { uin, pin ->

@@ -29,10 +29,7 @@ import com.iromashka.ui.theme.LocalThemePalette
 import com.iromashka.viewmodel.ChatViewModel
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,8 +73,13 @@ fun PhoneLookupScreen(
             searching = true
             CoroutineScope(Dispatchers.IO).launch {
                 val results = viewModel.discoverContacts(phones)
-                discoveredByPhone = results.associateBy { it.phone }
+                val discoveredList = mutableListOf<DiscoveredContactItem>()
+                results.collect { list ->
+                    discoveredList.addAll(list)
+                }
+                val map = discoveredList.associateBy { it.phone }
                 withContext(Dispatchers.Main) {
+                    discoveredByPhone = map
                     searching = false
                 }
             }

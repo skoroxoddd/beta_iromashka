@@ -64,33 +64,30 @@ jobs:
           path: src-tauri/target/release/bundle/dmg/*.dmg
 
   build-android:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - name: Set up JDK 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
           distribution: 'temurin'
+          java-version: '17'
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-      - name: Accept licenses
-        run: yes | sdkmanager --licenses || true
-      - name: Install required SDK components
+      - name: Decode Keystore
         run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
-      - name: Generate keystore for release
-        working-directory: android
+          echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > android/app/iromashka-release.jks
+      - name: Build Release APK
         run: |
-          mkdir -p app
-          keytool -genkeypair -v -keystore app/iromashka-release.jks -alias iromashka -keyalg RSA -keysize 2048 -validity 10000 -storepass iromashka2026 -keypass iromashka2026 -dname 'CN=iromashka,OU=iromashka,O=iromashka,L=Moscow,ST=Moscow,C=RU'
-      - name: Build Android APK
-        working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+        env:
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: iromashka-android
-          path: |
-            android/app/build/outputs/apk/release/*.apk
-            android/app/build/outputs/apk/debug/*.apk
+          path: android/app/build/outputs/apk/release/*.apk

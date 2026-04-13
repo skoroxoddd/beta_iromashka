@@ -20,15 +20,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
-import com.iromashka.model.Contact
 import com.iromashka.model.DiscoveredContactItem
 import com.iromashka.model.GroupItem
 import com.iromashka.model.ThemeInfo
+import com.iromashka.storage.ContactEntity
 import com.iromashka.storage.Prefs
 import com.iromashka.ui.theme.LocalThemePalette
 import com.iromashka.viewmodel.ChatViewModel
-import com.iromashka.viewmodel.UIMessage
-import com.iromashka.viewmodel.MessageStatus
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,7 +52,6 @@ fun ContactListScreen(
     Column(
         modifier = Modifier.fillMaxSize().background(palette.background)
     ) {
-        // Header
         Box(
             modifier = Modifier.fillMaxWidth()
                 .background(Brush.horizontalGradient(palette.titleBar))
@@ -104,7 +101,6 @@ fun ContactListScreen(
             }
         }
 
-        // Contact list
         if (contacts.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -155,10 +151,6 @@ fun ContactListScreen(
                             Text(contact.nickname, fontWeight = FontWeight.SemiBold,
                                 fontSize = 16.sp, color = palette.textPrimary)
                             Text(status, fontSize = 12.sp, color = statusColor.copy(alpha = 0.8f))
-                            if (contact.lastMessage.isNotEmpty()) {
-                                Text(contact.lastMessage, maxLines = 1,
-                                    fontSize = 13.sp, color = palette.textSecondary)
-                            }
                         }
                     }
                     HorizontalDivider(color = palette.divider, thickness = 0.5.dp)
@@ -167,12 +159,12 @@ fun ContactListScreen(
         }
     }
 
-    // Add contact by UIN dialog
     if (showAddContact) {
         AddContactDialog(
             onDismiss = { showAddContact = false },
             onAdd = { uin, nick ->
                 showAddContact = false
+                viewModel.addContact(uin, nick)
                 onChatOpen(uin, nick)
             }
         )

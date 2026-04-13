@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import com.iromashka.App
 import com.iromashka.MainActivity
 import com.iromashka.R
+import com.iromashka.crypto.CryptoManager
 import com.iromashka.network.WsEvent
 import com.iromashka.storage.AppDatabase
 import com.iromashka.storage.MessageEntity
@@ -23,6 +24,7 @@ class IromashkaForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var eventJob: Job? = null
+    private var myPrivKey: java.security.PrivateKey? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -32,6 +34,14 @@ class IromashkaForegroundService : Service() {
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification(this, "Подключение..."))
+
+        val pin = intent?.getStringExtra(EXTRA_PIN)
+        val wrapped = Prefs.getWrappedPriv(this)
+        if (wrapped.isNotEmpty() && !pin.isNullOrEmpty()) {
+            runCatching {
+                myPrivKey = CryptoManager.unwrapPrivateKey(wrapped, pin)
+            }
+        }
 
         val uin = Prefs.getUin(this)
         val token = Prefs.getToken(this)
@@ -56,10 +66,19 @@ class IromashkaForegroundService : Service() {
                     is WsEvent.MessageReceived -> {
                         val env = event.envelope
                         Log.d(TAG, "Message from ${env.sender_uin}")
+
+                        val privKey = myPrivKey
+                        val plaintext = if (privKey != null) {
+                            CryptoManager.decryptMessage(env.ciphertext, privKey)
+                        } else {
+                            null
+                        }
+
+                        val text = plaintext ?: env.ciphertext
                         val msg = MessageEntity(
                             senderUin = env.sender_uin,
                             receiverUin = env.receiver_uin,
-                            plaintext = env.ciphertext,
+                            plaintext = text,
                             timestamp = if (env.timestamp > 0) env.timestamp * 1000 else System.currentTimeMillis(),
                             isMine = false
                         )
@@ -105,6 +124,15 @@ class IromashkaForegroundService : Service() {
         ).apply {
             description = "Новые сообщения"
             enableVibration(true)
+            enableLights(true)
+        }
+        // Connection channel: IMPORTANCE_MIN — hidden from status bar, only in settings
+        val connChannel = NotificationChannel(
+            CHANNEL_ID, "АйРомашка — соединение",
+            NotificationManager.IMPORTANCE_MIN
+        ).apply {
+            description = "Статус подключения (скрыто)"
+            setShowBadge(false)
         }
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(channel)
@@ -142,13 +170,16 @@ class IromashkaForegroundService : Service() {
             }
             val stopPi = PendingIntent.getService(ctx, 1, stopIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            // Only show text for errors or new messages, not "Подключено"
+            val displayText = if (text == "Подключено" || text == "Подключение...") "" else text
             return NotificationCompat.Builder(ctx, CHANNEL_ID)
                 .setContentTitle("АйРомашка")
-                .setContentText(text)
+                .setContentText(if (displayText.isEmpty()) "Работает" else displayText)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentIntent(pi)
-                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Отключить", stopPi)
+                .setSilent(true)
                 .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_MIN)
                 .build()
         }
     }

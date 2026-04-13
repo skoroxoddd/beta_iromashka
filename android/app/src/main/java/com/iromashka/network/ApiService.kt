@@ -78,7 +78,6 @@ object ApiService {
         @GET("health")
         suspend fun health(): Map<String, Any>
 
-        // HTTP Long-Polling fallback (v0.10.0)
         @POST("poll")
         suspend fun poll(@Header("Authorization") token: String): PollResponse
 
@@ -110,8 +109,8 @@ object ApiService {
     @Volatile
     private var authInterceptor: AuthInterceptor? = null
 
-    private val client: OkHttpClient
-        get() = OkHttpClient.Builder()
+    private val client: OkHttpClient by lazy {
+        OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
@@ -120,17 +119,19 @@ object ApiService {
                 authInterceptor?.let { builder.addInterceptor(it) }
             }
             .build()
+    }
 
     fun setTokenProvider(tokenProvider: () -> String?) {
         authInterceptor = AuthInterceptor(tokenProvider)
     }
 
-    private val retrofit: Retrofit
-        get() = Retrofit.Builder()
+    private val retrofit: Retrofit by lazy {
+        Retrofit.Builder()
             .baseUrl(BASE_URL)
             .addConverterFactory(GsonConverterFactory.create(Gson()))
             .client(client)
             .build()
+    }
 
     val api: Api = retrofit.create(Api::class.java)
 }

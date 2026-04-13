@@ -33,7 +33,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val wsHolder get() = App.instance.wsHolder
 
     private var myPrivKey: java.security.PrivateKey? = null
-    private val pubkeyCache = mutableMapOf<Long, String>()
+    private val pubkeyCache = mutableMapOf<Long, java.security.PublicKey>()
 
     private val _wsConnected = MutableStateFlow(false)
     val wsConnected: StateFlow<Boolean> = _wsConnected.asStateFlow()
@@ -44,13 +44,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val _statuses = MutableStateFlow<Map<Long, String>>(emptyMap())
     val statuses: StateFlow<Map<Long, String>> = _statuses.asStateFlow()
 
-    // Current chat
     private var _currentChatUin: Long = -1
     private val _messagesState = MutableStateFlow<List<UIMessage>>(emptyList())
     val messagesState: StateFlow<List<UIMessage>> = _messagesState.asStateFlow()
 
     init {
-        // Listen to WsHolder events
         viewModelScope.launch {
             wsHolder.events.collect { event -> handleWsEvent(event) }
         }
@@ -138,7 +136,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun handleIncomingMessage(envelope: WsEnvelope) {
         val privKey = myPrivKey
         if (privKey == null) {
-            // No key — save encrypted text
             val msg = MessageEntity(
                 senderUin = envelope.sender_uin,
                 receiverUin = envelope.receiver_uin,
@@ -169,9 +166,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnectWs() {
         _wsConnected.value = false
+        wsHolder.disconnect()
     }
 
-    // ── Sending ──
+    fun sendTyping(toUin: Long, isTyping: Boolean) {
+        wsHolder.sendTyping(toUin, isTyping)
+    }
 
     fun sendMessage(toUin: Long, text: String) {
         val privKey = myPrivKey ?: return
@@ -196,9 +196,48 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ── Contacts ──
+    fun sendGroupMessage(groupId: Long, text: String) {
+        val privKey = myPrivKey ?: return
+        val myUin = Prefs.getUin(ctx)
 
-    fun getContacts(): Flow<List<Contact>> = db.contactDao().getAllContacts()
+        viewModelScope.launch {
+            runCatching {
+                val members = api.getGroupMembers("Bearer ${Prefs.getToken(ctx)}", groupId)
+                for (member in members) {
+                    if (member.uin == myUin) continue
+                    val recipPub = getPublicKey(member.uin)
+                    val ciphertext = CryptoManager.encryptMessage(text, recipPub)
+                    wsHolder.sendMessage(member.uin, ciphertext)
+                }
+
+                db.groupMessageDao().insertMessage(GroupMessageEntity(
+                    groupId = groupId,
+                    senderUin = myUin,
+                    plaintext = text,
+                    timestamp = System.currentTimeMillis(),
+                    isMine = true
+                ))
+            }.onFailure { e ->
+                Log.e("ChatVM", "Group send failed: ${e.message}")
+            }
+        }
+    }
+
+    fun addGroupMember(groupId: Long, uin: Long) {
+        viewModelScope.launch {
+            runCatching {
+                api.addGroupMember(
+                    "Bearer ${Prefs.getToken(ctx)}",
+                    groupId,
+                    AddMemberBody(uin)
+                )
+            }.onFailure { e ->
+                Log.e("ChatVM", "Add group member failed: ${e.message}")
+            }
+        }
+    }
+
+    fun getContacts(): Flow<List<ContactEntity>> = db.contactDao().getAll()
 
     fun addContact(uin: Long, nickname: String) {
         viewModelScope.launch {
@@ -208,15 +247,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun removeContact(uin: Long) {
         viewModelScope.launch {
-            db.contactDao().delete(uin)
+            db.contactDao().deleteByUin(uin)
         }
     }
 
     fun discoverContacts(phones: List<String>): Flow<List<DiscoveredContactItem>> = flow {
-        emit(api.discoverContacts(phones))
+        val token = Prefs.getToken(ctx)
+        val resp = api.discoverContacts("Bearer $token", DiscoverRequest(phones))
+        emit(resp)
     }
-
-    // ── Groups ──
 
     private val _groups = MutableStateFlow<List<GroupItem>>(emptyList())
     val groups: StateFlow<List<GroupItem>> = _groups.asStateFlow()
@@ -229,14 +268,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ── PubKey ──
-
-    private suspend fun getPublicKey(uin: Long): String {
+    private suspend fun getPublicKey(uin: Long): java.security.PublicKey {
         pubkeyCache[uin]?.let { return it }
         return runCatching {
             val resp = api.getPubKey(uin)
-            pubkeyCache[uin] = resp.pubkey
-            resp.pubkey
-        }.getOrElse { "" }
+            val pubKey = CryptoManager.importPublicKey(resp.pubkey)
+            pubkeyCache[uin] = pubKey
+            pubKey
+        }.getOrElse {
+            throw IllegalStateException("Failed to get pubkey for UIN $uin: ${it.message}")
+        }
     }
 }
