@@ -70,13 +70,12 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
       - name: Generate Keystore
-        run: |
-          keytool -genkeypair -v             -keystore android/app/iromashka-release.jks             -alias iromashka             -keyalg RSA             -keysize 2048             -validity 10000             -storepass iromashka2026             -keypass iromashka2026             -dname CN=iromashka.ru, OU=iromashka, O=iromashka, L=Moscow, C=RU
+        run: keytool -genkeypair -v -keystore android/app/iromashka-release.jks -alias iromashka -keyalg RSA -keysize 2048 -validity 10000 -storepass iromashka2026 -keypass iromashka2026 -dname CN=iromashka.ru
       - name: Build Release APK
         run: |
           cd android
