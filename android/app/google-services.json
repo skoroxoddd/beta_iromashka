@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "157672980163",
+    "project_id": "iromashka-39aeb",
+    "storage_bucket": "iromashka-39aeb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:157672980163:android:a9af7bf29b5f83ad4aac76",
+        "android_client_info": {
+          "package_name": "ru.iromashka"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyANxzCCYTfJrkcUuhh57eYCYpaI8p1ArNw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

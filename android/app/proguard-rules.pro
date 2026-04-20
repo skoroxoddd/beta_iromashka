@@ -1,41 +1,23 @@
-# Room
--keep class * extends androidx.room.RoomDatabase
--keep @androidx.room.Entity class *
--dontwarn androidx.room.paging.**
-
-# Retrofit + OkHttp
--keepattributes Signature
--keepattributes Exceptions
--keep class retrofit2.** { *; }
--keepclasseswithmembers class * {
-    @retrofit2.http.* <methods>;
-}
--keep class okhttp3.** { *; }
--keep interface okhttp3.** { *; }
--dontwarn okhttp3.**
--dontwarn okio.**
-
-# Gson
--keep class com.google.gson.** { *; }
+# Keep all our classes (package: com.iromashka)
+-keep class com.iromashka.** { *; }
 -keep class com.iromashka.model.** { *; }
+-keep class com.iromashka.network.RefreshRequest { *; }
+-keep class com.iromashka.network.RefreshResponse { *; }
+-keep class com.iromashka.storage.** { *; }
+-keep class com.iromashka.viewmodel.** { *; }
+-keep class com.iromashka.ui.** { *; }
+-keep class com.iromashka.crypto.** { *; }
+-keep class com.iromashka.service.** { *; }
 -keepattributes Signature
 -keepattributes *Annotation*
-
-# Kotlin
--keep class kotlin.** { *; }
--keep class kotlin.Metadata { *; }
--dontwarn kotlin.**
--keepclassmembers class **$WhenMappings {
-    <fields>;
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-keepattributes RuntimeVisibleAnnotations
+-keepclassmembers,allowshrinking,allowobfuscation interface * {
+    @retrofit2.http.* <methods>;
 }
-
-# Coroutines
--keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
--keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
-
-# Security Crypto
--keep class androidx.security.crypto.** { *; }
-
-# Keep model classes
--keep class com.iromashka.model.** { *; }
--keep class com.iromashka.network.** { *; }
+-keepclassmembers class * {
+    @com.google.gson.annotations.SerializedName <fields>;
+}
+-dontwarn kotlin.**
+-dontwarn kotlinx.**

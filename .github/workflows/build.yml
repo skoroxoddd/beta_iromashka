@@ -75,7 +75,14 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
       - name: Generate Keystore
-        run: keytool -genkeypair -v -keystore android/app/iromashka-release.jks -alias iromashka -keyalg RSA -keysize 2048 -validity 10000 -storepass iromashka2026 -keypass iromashka2026 -dname CN=iromashka.ru
+        run: |
+          keytool -genkeypair -v \
+            -keystore android/app/iromashka-release.keystore \
+            -alias iromashka \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "255Bookmekerka25!!!" \
+            -keypass "255Bookmekerka25!!!" \
+            -dname "CN=iRomashka, O=IP Romanov Alexey Alexandrovich, C=RU"
       - name: Build Release APK
         run: |
           cd android

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Iromashka" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">#27AE60</item>
-        <item name="android:navigationBarColor">#27AE60</item>
-        <item name="android:windowBackground">#E0F0F8</item>
+        <item name="android:statusBarColor">#1B3A6B</item>
+        <item name="android:navigationBarColor">#1B3A6B</item>
+        <item name="android:windowBackground">#EEF3FA</item>
     </style>
 </resources>

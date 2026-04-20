@@ -6,32 +6,22 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "messages",
-    indices = [Index("senderUin"), Index("receiverUin"), Index("timestamp")]
+    indices = [Index("chatUin"), Index("timestamp")]
 )
 data class MessageEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val chatUin: Long,       // UIN of the other side
     val senderUin: Long,
     val receiverUin: Long,
-    val plaintext: String,
+    val text: String,
     val timestamp: Long,
-    val isMine: Boolean,
-    val isGroup: Boolean = false,
-    val groupId: Long? = null
+    val isOutgoing: Boolean,
+    val isE2E: Boolean = true
 )
 
-@Entity(tableName = "contacts", indices = [Index("nickname")])
+@Entity(tableName = "contacts")
 data class ContactEntity(
     @PrimaryKey val uin: Long,
     val nickname: String,
     val addedAt: Long = System.currentTimeMillis()
-)
-
-@Entity(tableName = "group_messages", indices = [Index("groupId"), Index("timestamp")])
-data class GroupMessageEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val groupId: Long,
-    val senderUin: Long,
-    val plaintext: String,
-    val timestamp: Long,
-    val isMine: Boolean
 )

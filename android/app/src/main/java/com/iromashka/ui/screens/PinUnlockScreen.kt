@@ -2,13 +2,11 @@ package com.iromashka.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -19,9 +17,7 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun PinUnlockScreen(
-    onUnlock: (String) -> Boolean,
-    onWipeAndLogout: () -> Unit = {},
-    onLogout: () -> Unit = {}
+    onUnlock: (String) -> Boolean
 ) {
     val palette = LocalThemePalette.current
     val ctx = LocalContext.current
@@ -31,6 +27,7 @@ fun PinUnlockScreen(
 
     var remainingSecs by remember { mutableStateOf(Prefs.getPinLockoutRemainingSecs(ctx)) }
 
+    // Countdown timer
     LaunchedEffect(Unit) {
         while (remainingSecs > 0) {
             delay(1000L)
@@ -41,7 +38,7 @@ fun PinUnlockScreen(
     val isLocked = remainingSecs > 0
     val lockoutText = formatTime(remainingSecs)
     val fails = Prefs.getPinFailures(ctx)
-    val attemptsRemaining = maxOf(0, Prefs.MAX_PIN_FAILURES - fails)
+    val attemptsRemaining = maxOf(0, 5 - (fails % 5))
 
     Column(
         modifier = Modifier
@@ -56,7 +53,7 @@ fun PinUnlockScreen(
                 .background(Brush.horizontalGradient(palette.titleBar))
                 .padding(horizontal = 8.dp, vertical = 12.dp)
         ) {
-            Text("АйРомашка", color = Color.White,
+            Text("АйРомашка", color = androidx.compose.ui.graphics.Color.White,
                 fontWeight = FontWeight.Bold, fontSize = 20.sp,
                 modifier = Modifier.align(Alignment.Center))
         }
@@ -77,7 +74,7 @@ fun PinUnlockScreen(
             label = { Text("PIN-код", color = palette.textSecondary) },
             singleLine = true,
             enabled = !isLocked,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
             isError = isError,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = palette.accent,
@@ -91,12 +88,13 @@ fun PinUnlockScreen(
 
         Spacer(Modifier.height(12.dp))
 
+        // Lockout countdown
         if (isLocked) {
             Text("Попробуйте через", color = palette.textSecondary, fontSize = 13.sp)
             Text(lockoutText, color = palette.errorRed, fontSize = 24.sp,
                 fontWeight = FontWeight.Bold)
-        } else if (fails > 0 && fails < Prefs.MAX_PIN_FAILURES) {
-            Text("Осталось попыток: $attemptsRemaining",
+        } else if (fails % 5 != 0 && fails > 0) {
+            Text("Осталось попыток: $attemptsRemaining из 5",
                 color = palette.textSecondary, fontSize = 12.sp)
         }
 
@@ -111,10 +109,6 @@ fun PinUnlockScreen(
                         isError = true
                         pin = ""
                         remainingSecs = Prefs.getPinLockoutRemainingSecs(ctx)
-                        // 3 неверных попытки → удаление истории
-                        if (Prefs.getPinFailures(ctx) >= Prefs.MAX_PIN_FAILURES) {
-                            onWipeAndLogout()
-                        }
                     } else {
                         Prefs.resetPinFailures(ctx)
                     }
@@ -126,7 +120,7 @@ fun PinUnlockScreen(
             if (isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(18.dp),
-                    color = Color.White,
+                    color = androidx.compose.ui.graphics.Color.White,
                     strokeWidth = 2.dp,
                 )
             } else {

@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <domain-config cleartextTrafficPermitted="false">
+        <!-- Production: TLS only -->
         <domain includeSubdomains="true">iromashka.ru</domain>
     </domain-config>
+    <!-- Allow cleartext for local debug if needed -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </debug-overrides>
 </network-security-config>

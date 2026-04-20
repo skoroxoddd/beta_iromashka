@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [MessageEntity::class, ContactEntity::class, GroupMessageEntity::class],
-    version = 3,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -23,7 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "iromashka.db"
+                    "icq20.db"
                 )
                 .fallbackToDestructiveMigration()
                 .build()

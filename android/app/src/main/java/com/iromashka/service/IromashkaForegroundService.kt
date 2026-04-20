@@ -1,186 +1,121 @@
 package com.iromashka.service
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.app.Service
-import android.content.Context
-import android.content.Intent
-import android.os.IBinder
-import androidx.core.app.NotificationCompat
-import com.iromashka.App
+import android.app.*
+import android.content.*
+import android.os.*
+import android.os.Build
+import androidx.core.app.*
 import com.iromashka.MainActivity
-import com.iromashka.R
 import com.iromashka.crypto.CryptoManager
-import com.iromashka.network.WsEvent
-import com.iromashka.storage.AppDatabase
-import com.iromashka.storage.MessageEntity
+import com.iromashka.model.WsAuthPacket
+import com.iromashka.network.ApiService
 import com.iromashka.storage.Prefs
+import com.google.gson.Gson
 import kotlinx.coroutines.*
-import android.util.Log
+import okhttp3.*
+import java.util.concurrent.TimeUnit
 
 class IromashkaForegroundService : Service() {
 
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var eventJob: Job? = null
+    companion object {
+        const val CHANNEL_ID = "iromashka_fg"
+        const val MSG_CHANNEL_ID = "iromashka_msg"
+        const val NOTIF_ID = 1
+        const val MSG_NOTIF_ID = 2
+
+        fun startIntent(ctx: Context, pin: String = ""): Intent =
+            Intent(ctx, IromashkaForegroundService::class.java).apply {
+                putExtra("pin", pin)
+            }
+    }
+
+    private val gson = Gson()
+    private var ws: WebSocket? = null
     private var myPrivKey: java.security.PrivateKey? = null
+    private var myUin: Long = -1L
+    private var token: String = ""
+    private var reconnectCount = 0
+
+    override fun onBind(intent: Intent?) = null
+
+    override fun onCreate() {
+        super.onCreate()
+        createChannels()
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopService()
-            return START_NOT_STICKY
+        if (intent?.action == "STOP") { stopSelf(); return START_NOT_STICKY }
+
+        val pin = intent?.getStringExtra("pin") ?: ""
+        myUin = Prefs.getUin(this)
+        token = Prefs.getToken(this)
+        if (myUin < 0 || token.isEmpty()) { stopSelf(); return START_NOT_STICKY }
+
+        runCatching {
+            myPrivKey = CryptoManager.unwrapPrivateKey(
+                Prefs.getWrappedPriv(this), pin)
         }
 
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(this, "Подключение..."))
+        val notif = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("АйРомашка")
+            .setContentText("Подключено")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            .setOngoing(true).setSilent(true).build()
 
-        val pin = intent?.getStringExtra(EXTRA_PIN)
-        val wrapped = Prefs.getWrappedPriv(this)
-        if (wrapped.isNotEmpty() && !pin.isNullOrEmpty()) {
-            runCatching {
-                myPrivKey = CryptoManager.unwrapPrivateKey(wrapped, pin)
-            }
-        }
-
-        val uin = Prefs.getUin(this)
-        val token = Prefs.getToken(this)
-        if (uin > 0 && token.isNotEmpty()) {
-            App.instance.wsHolder.connect(uin, token)
-            startListening()
-        } else {
-            Log.w(TAG, "No credentials")
-            stopSelf()
-        }
-
+        startForeground(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) NOTIF_ID else NOTIF_ID, notif)
+        connectWebSocket()
         return START_STICKY
     }
 
-    private fun startListening() {
-        eventJob?.cancel()
-        eventJob = serviceScope.launch {
-            App.instance.wsHolder.events.collect { event ->
-                when (event) {
-                    is WsEvent.Connected -> updateNotification("Подключено")
-                    is WsEvent.Disconnected -> updateNotification("Переподключение...")
-                    is WsEvent.MessageReceived -> {
-                        val env = event.envelope
-                        Log.d(TAG, "Message from ${env.sender_uin}")
-
-                        val privKey = myPrivKey
-                        val plaintext = if (privKey != null) {
-                            CryptoManager.decryptMessage(env.ciphertext, privKey)
-                        } else {
-                            null
-                        }
-
-                        val text = plaintext ?: env.ciphertext
-                        val msg = MessageEntity(
-                            senderUin = env.sender_uin,
-                            receiverUin = env.receiver_uin,
-                            plaintext = text,
-                            timestamp = if (env.timestamp > 0) env.timestamp * 1000 else System.currentTimeMillis(),
-                            isMine = false
-                        )
-                        AppDatabase.getInstance(this@IromashkaForegroundService).messageDao().insert(msg)
-                        updateNotification("Новое сообщение")
-                    }
-                    is WsEvent.AuthFailed -> updateNotification("Ошибка авторизации")
-                    is WsEvent.Kicked -> updateNotification("Сессия завершена")
-                    is WsEvent.Error -> updateNotification("Ошибка соединения")
-                    else -> {}
+    private fun connectWebSocket() {
+        val client = OkHttpClient.Builder()
+            .pingInterval(30, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .build()
+        val request = Request.Builder().url(ApiService.WS_URL).build()
+        ws = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                reconnectCount = 0
+                webSocket.send(gson.toJson(WsAuthPacket(myUin, token)))
+            }
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val env = tryParseEnvelope(text)
+                if (env != null && myPrivKey != null) {
+                    val pt = runCatching { CryptoManager.decryptMessage(env.ciphertext, myPrivKey!!) }.getOrNull() ?: ""
+                    if (pt.isNotEmpty()) showMsgNotif(env.sender_uin, pt)
                 }
             }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                reconnectCount++
+                Handler(android.os.Looper.getMainLooper()).postDelayed({ connectWebSocket() }, 5000L.coerceAtMost(30000L * reconnectCount))
+            }
+        })
+    }
+
+    private fun tryParseEnvelope(text: String): com.iromashka.model.WsEnvelope? =
+        runCatching { gson.fromJson(text, com.iromashka.model.WsEnvelope::class.java) }.getOrNull()
+
+    private fun showMsgNotif(fromUin: Long, text: String) {
+        val ch = NotificationCompat.Builder(this, MSG_CHANNEL_ID)
+            .setContentTitle("Сообщение от $fromUin")
+            .setContentText(text.take(100))
+            .setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            .setAutoCancel(true).setDefaults(NotificationCompat.DEFAULT_ALL)
+        getSystemService(NotificationManager::class.java).notify(MSG_NOTIF_ID, ch.build())
+    }
+
+    private fun createChannels() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val fg = NotificationChannel(CHANNEL_ID, "АйРомашка — соединение", NotificationManager.IMPORTANCE_LOW).apply { setSound(null, null); setShowBadge(false) }
+            val msg = NotificationChannel(MSG_CHANNEL_ID, "АйРомашка — сообщения", NotificationManager.IMPORTANCE_HIGH)
+            getSystemService(NotificationManager::class.java).createNotificationChannels(listOf(fg, msg))
         }
-    }
-
-    private fun updateNotification(text: String) {
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(NOTIFICATION_ID, buildNotification(this, text))
-    }
-
-    private fun stopService() {
-        eventJob?.cancel()
-        App.instance.wsHolder.disconnect()
-        serviceScope.cancel()
-        stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        stopService()
-    }
-
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID, "АйРомашка — соединение",
-            NotificationManager.IMPORTANCE_LOW
-        ).apply { description = "Статус подключения" }
-        val msgChannel = NotificationChannel(
-            CHANNEL_MSG_ID, "АйРомашка — сообщения",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "Новые сообщения"
-            enableVibration(true)
-            enableLights(true)
-        }
-        // Connection channel: IMPORTANCE_MIN — hidden from status bar, only in settings
-        val connChannel = NotificationChannel(
-            CHANNEL_ID, "АйРомашка — соединение",
-            NotificationManager.IMPORTANCE_MIN
-        ).apply {
-            description = "Статус подключения (скрыто)"
-            setShowBadge(false)
-        }
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.createNotificationChannel(channel)
-        nm.createNotificationChannel(msgChannel)
-    }
-
-    companion object {
-        private const val TAG = "FGService"
-        private const val CHANNEL_ID = "iromashka_connection"
-        private const val CHANNEL_MSG_ID = "iromashka_messages"
-        private const val NOTIFICATION_ID = 1
-        private const val ACTION_STOP = "stop"
-        private const val ACTION_START = "start"
-        private const val EXTRA_PIN = "pin"
-
-        fun startIntent(ctx: Context, pin: String): Intent {
-            return Intent(ctx, IromashkaForegroundService::class.java).apply {
-                action = ACTION_START
-                putExtra(EXTRA_PIN, pin)
-            }
-        }
-
-        fun stopIntent(ctx: Context): Intent {
-            return Intent(ctx, IromashkaForegroundService::class.java).apply {
-                action = ACTION_STOP
-            }
-        }
-
-        fun buildNotification(ctx: Context, text: String): Notification {
-            val intent = Intent(ctx, MainActivity::class.java)
-            val pi = PendingIntent.getActivity(ctx, 0, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            val stopIntent = Intent(ctx, IromashkaForegroundService::class.java).apply {
-                action = ACTION_STOP
-            }
-            val stopPi = PendingIntent.getService(ctx, 1, stopIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            // Only show text for errors or new messages, not "Подключено"
-            val displayText = if (text == "Подключено" || text == "Подключение...") "" else text
-            return NotificationCompat.Builder(ctx, CHANNEL_ID)
-                .setContentTitle("АйРомашка")
-                .setContentText(if (displayText.isEmpty()) "Работает" else displayText)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentIntent(pi)
-                .setSilent(true)
-                .setOngoing(true)
-                .setPriority(NotificationCompat.PRIORITY_MIN)
-                .build()
-        }
+        ws?.close(1000, null)
     }
 }

@@ -6,47 +6,55 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
 object Prefs {
-    private const val NAME_SECURE = "iromashka_secure"
-    private const val NAME_SIMPLE = "iromashka_pref"
-
+    private const val NAME_SECURE = "icq20_secure"
+    private const val NAME_SIMPLE = "icq20_pref"
+    
     private fun securePrefs(ctx: Context): SharedPreferences {
         val masterKey = MasterKey.Builder(ctx)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
         return EncryptedSharedPreferences.create(
-            ctx, NAME_SECURE, masterKey,
+            ctx,
+            NAME_SECURE,
+            masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
     }
-
+    
     private fun simplePrefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(NAME_SIMPLE, Context.MODE_PRIVATE)
 
     fun saveSession(ctx: Context, uin: Long, nickname: String, token: String,
-                    refreshToken: String, wrappedPriv: String, pubKey: String, deviceId: String) {
+                    wrappedPriv: String, pubKey: String, refreshToken: String = "") {
         securePrefs(ctx).edit().apply {
             putLong("uin", uin)
             putString("nickname", nickname)
             putString("token", token)
-            putString("refresh_token", refreshToken)
             putString("wrapped_priv", wrappedPriv)
             putString("pub_key", pubKey)
-            putString("device_id", deviceId)
+            if (refreshToken.isNotEmpty()) putString("refresh_token", refreshToken)
+            putLong("token_ts", System.currentTimeMillis())
             apply()
         }
     }
 
-    fun updateTokens(ctx: Context, token: String, refreshToken: String) {
-        securePrefs(ctx).edit().apply {
-            putString("token", token)
-            putString("refresh_token", refreshToken)
-            apply()
-        }
+    
+    fun getRefreshToken(ctx: Context): String = securePrefs(ctx).getString("refresh_token", "") ?: ""
+    fun updateRefreshToken(ctx: Context, token: String) {
+        securePrefs(ctx).edit().putString("refresh_token", token).apply()
+    }
+    fun getTokenTimestamp(ctx: Context): Long = securePrefs(ctx).getLong("token_ts", 0L)
+    fun updateTokenTimestamp(ctx: Context, ts: Long) {
+        securePrefs(ctx).edit().putLong("token_ts", ts).apply()
     }
 
     fun updateToken(ctx: Context, token: String) {
         securePrefs(ctx).edit().putString("token", token).apply()
+    }
+
+    fun updateUin(ctx: Context, uin: Long) {
+        securePrefs(ctx).edit().putLong("uin", uin).apply()
     }
 
     fun updateWrappedPriv(ctx: Context, wrappedPriv: String) {
@@ -58,8 +66,6 @@ object Prefs {
     fun getToken(ctx: Context): String = securePrefs(ctx).getString("token", "") ?: ""
     fun getWrappedPriv(ctx: Context): String = securePrefs(ctx).getString("wrapped_priv", "") ?: ""
     fun getPubKey(ctx: Context): String = securePrefs(ctx).getString("pub_key", "") ?: ""
-    fun getRefreshToken(ctx: Context): String = securePrefs(ctx).getString("refresh_token", "") ?: ""
-    fun getDeviceId(ctx: Context): String = securePrefs(ctx).getString("device_id", "") ?: ""
 
     fun isLoggedIn(ctx: Context): Boolean = getUin(ctx) > 0 && getToken(ctx).isNotEmpty()
 
@@ -68,12 +74,12 @@ object Prefs {
     }
 
     // Theme
-    fun getTheme(ctx: Context): String = simplePrefs(ctx).getString("theme", "ROSE") ?: "ROSE"
+    fun getTheme(ctx: Context): String = simplePrefs(ctx).getString("theme", "Iromashka") ?: "ICQ"
     fun setTheme(ctx: Context, theme: String) {
         simplePrefs(ctx).edit().putString("theme", theme).apply()
     }
 
-    // PIN lockout
+    // PIN lockout tracking
     fun getPinFailures(ctx: Context): Int = simplePrefs(ctx).getInt("pin_fails", 0)
     fun recordPinFailure(ctx: Context) {
         val fails = getPinFailures(ctx) + 1
@@ -90,6 +96,7 @@ object Prefs {
     }
     fun getPinLockoutTime(ctx: Context): Long = simplePrefs(ctx).getLong("pin_lockout_time", 0)
 
+    /** Remaining seconds until unlock, or 0 if not locked */
     fun getPinLockoutRemainingSecs(ctx: Context): Int {
         val fails = getPinFailures(ctx)
         if (fails < 5) return 0
@@ -101,16 +108,19 @@ object Prefs {
         return maxOf(0, (remaining / 1000).toInt())
     }
 
-    private fun getLockoutDurationMillis(failures: Int): Long = when {
-        failures < 10 -> 30_000L
-        failures < 15 -> 60_000L
-        failures < 20 -> 5 * 60_000L
-        failures < 25 -> 15 * 60_000L
-        failures < 30 -> 30 * 60_000L
-        failures < 35 -> 60 * 60_000L
-        failures < 40 -> 4 * 60 * 60_000L
-        else -> 24 * 60 * 60_000L
+    private fun getLockoutDurationMillis(failures: Int): Long {
+        return when {
+            failures < 10 -> 30_000L           // 5-9 fails: 30 sec
+            failures < 15 -> 60_000L           // 10-14: 1 min
+            failures < 20 -> 5 * 60_000L       // 15-19: 5 min
+            failures < 25 -> 15 * 60_000L      // 20-24: 15 min
+            failures < 30 -> 30 * 60_000L      // 25-29: 30 min
+            failures < 35 -> 60 * 60_000L      // 30-34: 1 hour
+            failures < 40 -> 4 * 60 * 60_000L  // 35-39: 4 hours
+            else -> 24 * 60 * 60_000L          // 40+: 24 hours (wiped next step)
+        }
     }
 
-    const val MAX_PIN_FAILURES = 5
+    /** Max failures before wiping keys */
+    const val MAX_PIN_FAILURES = 50
 }

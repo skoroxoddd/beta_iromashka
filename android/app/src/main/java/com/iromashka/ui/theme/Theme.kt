@@ -7,9 +7,8 @@ import androidx.compose.ui.platform.LocalContext
 import com.iromashka.storage.Prefs
 
 enum class ThemeMode {
-    ROSE,
-    QIP,
-    CUSTOM
+    Iromashka,
+    QIP;
 }
 
 data class ThemePalette(
@@ -31,23 +30,23 @@ data class ThemePalette(
     val chatBg: Color,
 )
 
-val RosePalette = ThemePalette(
-    background    = Color(0xFFE0F0F8),
+val IcqpPalette = ThemePalette(
+    background    = Color(0xFFEEF3FA),
     surface       = Color(0xFFFFFFFF),
-    titleBar      = listOf(Color(0xFF27AE60), Color(0xFF219A52)),
-    bubbleOut     = Color(0xFF88B0C8),
-    bubbleIn      = Color(0xFF3890C8),
-    textPrimary   = Color(0xFF304860),
-    textSecondary = Color(0xFFA0B8CC),
-    divider       = Color(0xFFC0D8E8),
-    accent        = Color(0xFFF8D860),
-    onlineGreen   = Color(0xFF27AE60),
-    offlineGray   = Color(0xFFA0B8CC),
-    errorRed      = Color(0xFFC0392B),
-    avatar        = Color(0xFF3890C8),
+    titleBar      = listOf(Color(0xFF1B3A6B), Color(0xFF2A5298)),
+    bubbleOut     = Color(0xFF1B3A6B),
+    bubbleIn      = Color(0xFFFFFFFF),
+    textPrimary   = Color(0xFF1C2B4A),
+    textSecondary = Color(0xFF6B7FA3),
+    divider       = Color(0xFFC8D8EA),
+    accent        = Color(0xFF2A5298),
+    onlineGreen   = Color(0xFF2AB06F),
+    offlineGray   = Color(0xFF9BABB8),
+    errorRed      = Color(0xFFCC0000),
+    avatar        = Color(0xFF1B3A6B),
     inputBg       = Color(0xFFFFFFFF),
     dropdownBg    = Color(0xFFFFFFFF),
-    chatBg        = Color(0xFFE0F0F8),
+    chatBg        = Color(0xFFE8EEF7),
 )
 
 val QipPalette = ThemePalette(
@@ -69,28 +68,27 @@ val QipPalette = ThemePalette(
     chatBg        = Color(0xFF15152A),
 )
 
-val LocalThemePalette = compositionLocalOf<ThemePalette> { RosePalette }
+val LocalThemePalette = compositionLocalOf<ThemePalette> { IcqpPalette }
+val LocalThemeMode = compositionLocalOf<ThemeMode> { ThemeMode.Iromashka }
 
 @Composable
 fun AppTheme(content: @Composable () -> Unit) {
     val ctx = LocalContext.current
     val themeName = Prefs.getTheme(ctx)
-    val palette = when {
-        themeName.startsWith("CUSTOM_") -> RosePalette
-        themeName == "QIP" -> QipPalette
-        else -> RosePalette
+    val mode = ThemeMode.entries.find { it.name == themeName } ?: ThemeMode.Iromashka
+    val palette = when (mode) {
+        ThemeMode.Iromashka -> IcqpPalette
+        ThemeMode.QIP -> QipPalette
     }
 
-    val isDark = themeName == "QIP"
-    val mdScheme = if (isDark) {
-        darkColorScheme(
+    val mdScheme = when (mode) {
+        ThemeMode.QIP -> darkColorScheme(
             primary = palette.accent,
             background = palette.background,
             surface = palette.surface,
             onSurface = palette.textPrimary,
         )
-    } else {
-        lightColorScheme(
+        else -> lightColorScheme(
             primary = palette.accent,
             background = palette.background,
             surface = palette.surface,
@@ -100,6 +98,7 @@ fun AppTheme(content: @Composable () -> Unit) {
 
     CompositionLocalProvider(
         LocalThemePalette provides palette,
+        LocalThemeMode provides mode,
     ) {
         MaterialTheme(
             colorScheme = mdScheme,

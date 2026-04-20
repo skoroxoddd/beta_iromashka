@@ -9,18 +9,22 @@ import javax.crypto.*
 import javax.crypto.spec.*
 
 /**
- * E2E шифрование — совместимо с сервером v0.10.0.
+ * E2E crypto compatible with web client (WebCrypto API):
  * - P-256 ECDH keypair
  * - Private key: PBKDF2(pin, 250k iter) + AES-256-GCM wrap
  * - Per-message: ephemeral ECDH + HKDF-SHA256 + AES-256-GCM
  * - Forward Secrecy: ephemeral key discarded after each message
+ *
+ * Lose PIN → lose history (same model as Signal)
  */
 object CryptoManager {
 
     private const val PBKDF2_ITERATIONS = 250_000
     private const val EC_CURVE = "secp256r1"
-    private const val HKDF_INFO = "iromashka-msg"
+    private const val HKDF_INFO = "icq20-msg"
     private val gson = Gson()
+
+    // ── Key generation ─────────────────────────────────────────────────────
 
     fun generateKeyPair(): KeyPair {
         val kpg = KeyPairGenerator.getInstance("EC")
@@ -28,24 +32,36 @@ object CryptoManager {
         return kpg.generateKeyPair()
     }
 
+    /** Export as SPKI base64 — compatible with WebCrypto exportKey("spki") */
     fun exportPublicKey(pub: PublicKey): String =
         Base64.encodeToString(pub.encoded, Base64.NO_WRAP)
 
+    /** Import SPKI base64 public key from server */
     fun importPublicKey(b64: String): PublicKey {
         val bytes = Base64.decode(b64, Base64.NO_WRAP)
         return KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(bytes))
     }
 
+    // ── Private key wrapping (PIN protection) ──────────────────────────────
+
+    /**
+     * Wrap private key with PIN.
+     * Format: base64( salt[16] | iv[12] | ciphertext )
+     * Compatible with WebCrypto wrapKey approach.
+     */
     fun wrapPrivateKey(priv: PrivateKey, pin: String): String {
         val salt = randomBytes(16)
         val iv = randomBytes(12)
         val aesKey = pbkdf2Key(pin, salt)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
-        val ct = cipher.doFinal(priv.encoded)
+        val ct = cipher.doFinal(priv.encoded) // PKCS#8
         return Base64.encodeToString(salt + iv + ct, Base64.NO_WRAP)
     }
 
+    /**
+     * Unwrap private key with PIN. Throws BadPaddingException on wrong PIN.
+     */
     fun unwrapPrivateKey(wrapped: String, pin: String): PrivateKey {
         val bytes = Base64.decode(wrapped, Base64.NO_WRAP)
         val salt = bytes.sliceArray(0..15)
@@ -58,22 +74,34 @@ object CryptoManager {
         return KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(pkcs8))
     }
 
+    /** Re-wrap same private key with new PIN (for PIN change) */
     fun rewrapPrivateKey(wrapped: String, oldPin: String, newPin: String): String {
-        val priv = unwrapPrivateKey(wrapped, oldPin)
+        val priv = unwrapPrivateKey(wrapped, oldPin) // throws if wrong
         return wrapPrivateKey(priv, newPin)
     }
 
+    // ── Message encryption ─────────────────────────────────────────────────
+
+    /**
+     * Encrypt plaintext for recipient.
+     * Returns JSON: {"v":1,"epk":"...","iv":"...","ct":"..."}
+     * Compatible with web client encryptMsg().
+     */
     fun encryptMessage(plaintext: String, recipientPub: PublicKey): String {
+        // Ephemeral keypair (new per message → Forward Secrecy)
         val ephKp = generateKeyPair()
 
+        // ECDH shared secret
         val ka = KeyAgreement.getInstance("ECDH")
         ka.init(ephKp.private)
         ka.doPhase(recipientPub, true)
         val sharedSecret = ka.generateSecret()
 
+        // HKDF → 256-bit AES key
         val aesKeyBytes = hkdf(sharedSecret, HKDF_INFO.toByteArray(Charsets.UTF_8))
         val aesKey = SecretKeySpec(aesKeyBytes, "AES")
 
+        // AES-256-GCM
         val iv = randomBytes(12)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
@@ -87,6 +115,10 @@ object CryptoManager {
         ))
     }
 
+    /**
+     * Decrypt message ciphertext JSON using our private key.
+     * Returns null if decryption fails (tampered / wrong key).
+     */
     fun decryptMessage(cipherJson: String, myPrivKey: PrivateKey): String? = runCatching {
         val type = object : TypeToken<Map<String, Any>>() {}.type
         val map: Map<String, Any> = gson.fromJson(cipherJson, type)
@@ -110,6 +142,9 @@ object CryptoManager {
         String(cipher.doFinal(ct), Charsets.UTF_8)
     }.getOrNull()
 
+    // ── PIN verification ───────────────────────────────────────────────────
+
+    /** Try to decrypt wrapped key; return true if PIN is correct */
     fun verifyPin(wrapped: String, pin: String): Boolean = runCatching {
         unwrapPrivateKey(wrapped, pin)
     }.isSuccess
@@ -123,14 +158,21 @@ object CryptoManager {
         return SecretKeySpec(raw, "AES")
     }
 
+    /**
+     * HKDF-SHA256 (RFC 5869).
+     * Extract with all-zero salt (32 bytes), Expand to 32 bytes.
+     * Matches WebCrypto HKDF with empty/zero salt.
+     */
     private fun hkdf(ikm: ByteArray, info: ByteArray): ByteArray {
         val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(ByteArray(32), "HmacSHA256"))
+        // Extract
+        mac.init(SecretKeySpec(ByteArray(32), "HmacSHA256")) // zero salt
         val prk = mac.doFinal(ikm)
+        // Expand T(1) = HMAC(PRK, info || 0x01)
         mac.init(SecretKeySpec(prk, "HmacSHA256"))
         mac.update(info)
         mac.update(0x01.toByte())
-        return mac.doFinal()
+        return mac.doFinal() // 32 bytes
     }
 
     private fun randomBytes(n: Int): ByteArray =

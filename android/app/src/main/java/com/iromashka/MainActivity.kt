@@ -2,8 +2,8 @@ package com.iromashka
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,16 +13,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.navigation.*
 import androidx.navigation.compose.*
-import com.iromashka.service.IromashkaForegroundService
-import com.iromashka.storage.AppDatabase
 import com.iromashka.storage.Prefs
 import com.iromashka.ui.screens.*
 import com.iromashka.ui.theme.AppTheme
 import com.iromashka.viewmodel.AuthViewModel
 import com.iromashka.viewmodel.ChatViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -31,59 +26,47 @@ class MainActivity : ComponentActivity() {
 
     private val notifPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* best effort */ }
-
-    private val contactsPermission = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { /* handled in ContactListScreen */ }
+    ) { /* ignore result — best effort */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE
-        )
-
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-            != PackageManager.PERMISSION_GRANTED) {
-            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
+        requestNotifPermission()
 
         setContent {
             AppTheme {
-                IromashkaNavHost(authVm = authVm, chatVm = chatVm)
+                IcqNavHost(authVm = authVm, chatVm = chatVm)
             }
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        if (Prefs.isLoggedIn(this)) {
-            requestContactsPermission()
-        }
-    }
-
-    private fun requestContactsPermission() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
-            != PackageManager.PERMISSION_GRANTED) {
-            contactsPermission.launch(arrayOf(Manifest.permission.READ_CONTACTS))
+    private fun requestNotifPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
     }
 }
 
 @Composable
-fun IromashkaNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
+fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
     val ctx = LocalContext.current
     val navController = rememberNavController()
 
+    var sessionPin by remember { mutableStateOf("") }
+
     val startDest = if (Prefs.isLoggedIn(ctx)) "pin_unlock" else "login"
 
-    val authState by authVm.state.collectAsState()
-
-    LaunchedEffect(authState) {
-        if (authState is com.iromashka.viewmodel.AuthState.Success) {
-            val s = authState as com.iromashka.viewmodel.AuthState.Success
+    val authFailed by chatVm.authFailed.collectAsState()
+    LaunchedEffect(authFailed) {
+        if (authFailed) {
+            Prefs.clear(ctx)
+            chatVm.disconnectWs()
+            navController.navigate("login") {
+                popUpTo(0) { inclusive = true }
+            }
         }
     }
 
@@ -92,13 +75,10 @@ fun IromashkaNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
         composable("login") {
             LoginScreen(
                 viewModel = authVm,
-                onSuccess = { uin, pin ->
+                onSuccess = { _ ->
                     navController.navigate("contacts") {
                         popUpTo("login") { inclusive = true }
                     }
-                    chatVm.connectWs()
-                    val svcIntent = IromashkaForegroundService.startIntent(ctx, pin)
-                    ctx.startForegroundService(svcIntent)
                 },
                 onRegister = { navController.navigate("register") }
             )
@@ -107,13 +87,10 @@ fun IromashkaNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
         composable("register") {
             RegisterScreen(
                 viewModel = authVm,
-                onSuccess = { uin, pin ->
-                    navController.navigate("contacts") {
-                        popUpTo("register") { inclusive = true }
+                onSuccess = { _ ->
+                    navController.navigate("pin_unlock") {
+                        popUpTo(0) { inclusive = true }
                     }
-                    chatVm.connectWs()
-                    val svcIntent = IromashkaForegroundService.startIntent(ctx, pin)
-                    ctx.startForegroundService(svcIntent)
                 },
                 onBack = { navController.popBackStack() }
             )
@@ -122,7 +99,8 @@ fun IromashkaNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
         composable("pin_unlock") {
             PinUnlockScreen(
                 onUnlock = { pin ->
-                    val ok = chatVm.initSession(pin)
+                    sessionPin = pin
+                    val ok = chatVm.init(pin)
                     if (ok) {
                         chatVm.connectWs()
                         navController.navigate("contacts") {
@@ -130,23 +108,6 @@ fun IromashkaNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                         }
                     }
                     ok
-                },
-                onWipeAndLogout = {
-                    val db = AppDatabase.getInstance(ctx)
-                    GlobalScope.launch(Dispatchers.IO) {
-                        db.messageDao().deleteAll()
-                        db.groupMessageDao().clearAllGroups()
-                    }
-                    authVm.logout()
-                    navController.navigate("login") {
-                        popUpTo(0) { inclusive = true }
-                    }
-                },
-                onLogout = {
-                    authVm.logout()
-                    navController.navigate("login") {
-                        popUpTo(0) { inclusive = true }
-                    }
                 }
             )
         }
@@ -154,9 +115,16 @@ fun IromashkaNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
         composable("contacts") {
             val uin = Prefs.getUin(ctx)
             val nickname = Prefs.getNickname(ctx)
+
+            LaunchedEffect(Unit) {
+                if (chatVm.shouldRefreshToken()) {
+                    chatVm.refreshToken()
+                }
+            }
+
             ContactListScreen(
                 myUin = uin,
-                myNickname = nickname.ifBlank { "UIN $uin" },
+                myNickname = nickname,
                 viewModel = chatVm,
                 onChatOpen = { toUin, toNick ->
                     navController.navigate("chat/$toUin/$toNick")
@@ -165,18 +133,11 @@ fun IromashkaNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                     navController.navigate("group_chat/$groupId/$groupName")
                 },
                 onLogout = {
-                    val svcIntent = IromashkaForegroundService.stopIntent(ctx)
-                    ctx.startForegroundService(svcIntent)
                     chatVm.disconnectWs()
+                    Prefs.clear(ctx)
                     navController.navigate("login") {
                         popUpTo(0) { inclusive = true }
                     }
-                },
-                onPhoneLookup = {
-                    navController.navigate("phone_lookup")
-                },
-                onSettings = {
-                    navController.navigate("settings")
                 }
             )
         }
@@ -191,7 +152,9 @@ fun IromashkaNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
             val toUin = back.arguments!!.getLong("toUin")
             val toNick = back.arguments!!.getString("toNick") ?: ""
 
-            LaunchedEffect(toUin) { chatVm.openChat(toUin) }
+            LaunchedEffect(toUin) {
+                chatVm.openChat(toUin)
+            }
 
             ChatScreen(
                 myUin = Prefs.getUin(ctx),
@@ -216,33 +179,6 @@ fun IromashkaNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                 groupName = groupName,
                 viewModel = chatVm,
                 onBack = { navController.popBackStack() }
-            )
-        }
-
-        composable("phone_lookup") {
-            PhoneLookupScreen(
-                viewModel = chatVm,
-                onBack = { navController.popBackStack() },
-                onChatOpen = { uin, nick ->
-                    navController.navigate("chat/$uin/$nick") {
-                        popUpTo("contacts")
-                    }
-                }
-            )
-        }
-
-        composable("settings") {
-            SettingsScreen(
-                onBack = { navController.popBackStack() },
-                onLogout = {
-                    val svcIntent = IromashkaForegroundService.stopIntent(ctx)
-                    ctx.startForegroundService(svcIntent)
-                    chatVm.disconnectWs()
-                    authVm.logout()
-                    navController.navigate("login") {
-                        popUpTo(0) { inclusive = true }
-                    }
-                }
             )
         }
     }
