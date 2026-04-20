@@ -79,6 +79,16 @@ object Prefs {
         simplePrefs(ctx).edit().putString("theme", theme).apply()
     }
 
+    fun getDeviceId(ctx: Context): String {
+        val prefs = simplePrefs(ctx)
+        var id = prefs.getString("device_id", null)
+        if (id.isNullOrEmpty()) {
+            id = java.util.UUID.randomUUID().toString()
+            prefs.edit().putString("device_id", id).apply()
+        }
+        return id
+    }
+
     // PIN lockout tracking
     fun getPinFailures(ctx: Context): Int = simplePrefs(ctx).getInt("pin_fails", 0)
     fun recordPinFailure(ctx: Context) {

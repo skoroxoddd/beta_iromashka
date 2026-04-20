@@ -37,6 +37,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 val resp = api.register(RegisterRequest(phone, pin, pubB64))
 
                 Prefs.saveSession(ctx, resp.uin, nickname, resp.token, wrappedPriv, pubB64, resp.refresh_token)
+                registerDevice(resp.token, pubB64)
                 _state.value = AuthState.Success(resp.uin)
             }.onFailure {
                 _state.value = AuthState.Error(it.message ?: "Registration failed")
@@ -59,6 +60,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 Prefs.updateRefreshToken(ctx, resp.refresh_token)
                 Prefs.updateTokenTimestamp(ctx, System.currentTimeMillis())
                 Prefs.updateUin(ctx, resp.uin)
+                registerDevice(resp.token, Prefs.getPubKey(ctx))
                 _state.value = AuthState.Success(resp.uin)
             }.onFailure {
                 _state.value = AuthState.Error(it.message ?: "Login failed")
@@ -90,5 +92,20 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resetState() {
         _state.value = AuthState.Idle
+    }
+
+    private suspend fun registerDevice(token: String, pubKey: String) {
+        if (pubKey.isEmpty()) return
+        runCatching {
+            val deviceId = Prefs.getDeviceId(ctx)
+            api.registerDevice(
+                "Bearer $token",
+                com.iromashka.network.RegisterDeviceRequest(
+                    device_id = deviceId,
+                    pubkey = pubKey,
+                    device_name = "Android"
+                )
+            )
+        }
     }
 }

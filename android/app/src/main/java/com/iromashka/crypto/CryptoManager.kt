@@ -21,7 +21,6 @@ object CryptoManager {
 
     private const val PBKDF2_ITERATIONS = 250_000
     private const val EC_CURVE = "secp256r1"
-    private const val HKDF_INFO = "icq20-msg"
     private val gson = Gson()
 
     // ── Key generation ─────────────────────────────────────────────────────
@@ -83,37 +82,36 @@ object CryptoManager {
     // ── Message encryption ─────────────────────────────────────────────────
 
     /**
-     * Encrypt plaintext for recipient.
-     * Returns JSON: {"v":1,"epk":"...","iv":"...","ct":"..."}
-     * Compatible with web client encryptMsg().
+     * Encrypt for a single recipient public key.
+     * v2 format: {"v":2,"epk":"...","iv":"...","ct":"..."}
+     * Uses raw ECDH shared secret as AES key (matches WebCrypto deriveKey).
      */
     fun encryptMessage(plaintext: String, recipientPub: PublicKey): String {
-        // Ephemeral keypair (new per message → Forward Secrecy)
         val ephKp = generateKeyPair()
-
-        // ECDH shared secret
-        val ka = KeyAgreement.getInstance("ECDH")
-        ka.init(ephKp.private)
-        ka.doPhase(recipientPub, true)
-        val sharedSecret = ka.generateSecret()
-
-        // HKDF → 256-bit AES key
-        val aesKeyBytes = hkdf(sharedSecret, HKDF_INFO.toByteArray(Charsets.UTF_8))
-        val aesKey = SecretKeySpec(aesKeyBytes, "AES")
-
-        // AES-256-GCM
+        val aesKey = ecdhAesKey(ephKp.private, recipientPub)
         val iv = randomBytes(12)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
         val ct = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
-
         return gson.toJson(mapOf(
-            "v" to 1,
+            "v"   to 2,
             "epk" to Base64.encodeToString(ephKp.public.encoded, Base64.NO_WRAP),
-            "iv" to Base64.encodeToString(iv, Base64.NO_WRAP),
-            "ct" to Base64.encodeToString(ct, Base64.NO_WRAP)
+            "iv"  to Base64.encodeToString(iv, Base64.NO_WRAP),
+            "ct"  to Base64.encodeToString(ct, Base64.NO_WRAP)
         ))
     }
+
+    /**
+     * Encrypt for multiple recipient devices.
+     * Returns list of {device_id, ciphertext} pairs.
+     */
+    fun encryptForDevices(plaintext: String, devices: List<DeviceInfo>): List<DevicePayload> =
+        devices.mapNotNull { dev ->
+            runCatching {
+                val pub = importPublicKey(dev.pubkey)
+                DevicePayload(device_id = dev.device_id, ciphertext = encryptMessage(plaintext, pub))
+            }.getOrNull()
+        }
 
     /**
      * Decrypt message ciphertext JSON using our private key.
@@ -122,25 +120,24 @@ object CryptoManager {
     fun decryptMessage(cipherJson: String, myPrivKey: PrivateKey): String? = runCatching {
         val type = object : TypeToken<Map<String, Any>>() {}.type
         val map: Map<String, Any> = gson.fromJson(cipherJson, type)
-
         val ephPubBytes = Base64.decode(map["epk"] as String, Base64.NO_WRAP)
-        val iv = Base64.decode(map["iv"] as String, Base64.NO_WRAP)
-        val ct = Base64.decode(map["ct"] as String, Base64.NO_WRAP)
-
+        val iv  = Base64.decode(map["iv"] as String, Base64.NO_WRAP)
+        val ct  = Base64.decode(map["ct"] as String, Base64.NO_WRAP)
         val ephPub = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(ephPubBytes))
-
-        val ka = KeyAgreement.getInstance("ECDH")
-        ka.init(myPrivKey)
-        ka.doPhase(ephPub, true)
-        val sharedSecret = ka.generateSecret()
-
-        val aesKeyBytes = hkdf(sharedSecret, HKDF_INFO.toByteArray(Charsets.UTF_8))
-        val aesKey = SecretKeySpec(aesKeyBytes, "AES")
-
+        val aesKey = ecdhAesKey(myPrivKey, ephPub)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
         String(cipher.doFinal(ct), Charsets.UTF_8)
     }.getOrNull()
+
+    // Raw ECDH → AES-256-GCM key (matches WebCrypto deriveKey({name:'ECDH'}, ..., {name:'AES-GCM', length:256}))
+    private fun ecdhAesKey(priv: java.security.Key, pub: java.security.Key): SecretKeySpec {
+        val ka = KeyAgreement.getInstance("ECDH")
+        ka.init(priv as java.security.PrivateKey)
+        ka.doPhase(pub as java.security.PublicKey, true)
+        val sharedBytes = ka.generateSecret() // 32 bytes for P-256 (x-coordinate)
+        return SecretKeySpec(sharedBytes.copyOf(32), "AES")
+    }
 
     // ── PIN verification ───────────────────────────────────────────────────
 
@@ -158,22 +155,8 @@ object CryptoManager {
         return SecretKeySpec(raw, "AES")
     }
 
-    /**
-     * HKDF-SHA256 (RFC 5869).
-     * Extract with all-zero salt (32 bytes), Expand to 32 bytes.
-     * Matches WebCrypto HKDF with empty/zero salt.
-     */
-    private fun hkdf(ikm: ByteArray, info: ByteArray): ByteArray {
-        val mac = Mac.getInstance("HmacSHA256")
-        // Extract
-        mac.init(SecretKeySpec(ByteArray(32), "HmacSHA256")) // zero salt
-        val prk = mac.doFinal(ikm)
-        // Expand T(1) = HMAC(PRK, info || 0x01)
-        mac.init(SecretKeySpec(prk, "HmacSHA256"))
-        mac.update(info)
-        mac.update(0x01.toByte())
-        return mac.doFinal() // 32 bytes
-    }
+    data class DeviceInfo(val device_id: String, val pubkey: String)
+    data class DevicePayload(val device_id: String, val ciphertext: String)
 
     private fun randomBytes(n: Int): ByteArray =
         ByteArray(n).also { SecureRandom().nextBytes(it) }

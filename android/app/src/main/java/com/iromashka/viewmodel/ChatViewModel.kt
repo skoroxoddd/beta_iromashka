@@ -311,19 +311,40 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun sendMessage(toUin: Long, text: String) {
         val myUin = Prefs.getUin(ctx)
         @Suppress("UNUSED_VARIABLE") val privKey = myPrivKey ?: return
+        val token = Prefs.getToken(ctx)
 
         viewModelScope.launch {
             runCatching {
-                val pubKeyResp = api.getPubKey(toUin)
-                val recipPub = CryptoManager.importPublicKey(pubKeyResp.pubkey)
-                val ciphertext = CryptoManager.encryptMessage(text, recipPub)
+                val devices = runCatching {
+                    api.getUserDevices("Bearer $token", toUin)
+                }.getOrNull()
 
-                wsClient?.sendMessage(WsEnvelope(
-                    sender_uin = myUin,
-                    receiver_uin = toUin,
-                    ciphertext = ciphertext,
-                    timestamp = 0
-                ))
+                val ciphertext: String
+                val payloads: List<com.iromashka.crypto.CryptoManager.DevicePayload>?
+
+                if (!devices.isNullOrEmpty()) {
+                    val deviceInfos = devices.map {
+                        com.iromashka.crypto.CryptoManager.DeviceInfo(it.device_id, it.pubkey)
+                    }
+                    payloads = CryptoManager.encryptForDevices(text, deviceInfos)
+                    ciphertext = payloads.firstOrNull()?.ciphertext ?: text
+                } else {
+                    payloads = null
+                    val pubKeyResp = api.getPubKey(toUin)
+                    val recipPub = CryptoManager.importPublicKey(pubKeyResp.pubkey)
+                    ciphertext = CryptoManager.encryptMessage(text, recipPub)
+                }
+
+                if (payloads != null) {
+                    wsClient?.sendMultiDeviceMessage(myUin, toUin, payloads)
+                } else {
+                    wsClient?.sendMessage(WsEnvelope(
+                        sender_uin = myUin,
+                        receiver_uin = toUin,
+                        ciphertext = ciphertext,
+                        timestamp = 0
+                    ))
+                }
 
                 msgDao.insertMessage(MessageEntity(
                     chatUin = toUin,

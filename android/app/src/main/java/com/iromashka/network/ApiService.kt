@@ -68,9 +68,19 @@ object ApiService {
             @Header("Authorization") token: String,
             @Body body: ChangePinRequest
         ): ChangePinResponse
-    }
 
-    private val client = OkHttpClient.Builder()
+        @POST("devices/register")
+        suspend fun registerDevice(
+            @Header("Authorization") token: String,
+            @Body body: RegisterDeviceRequest
+        )
+
+        @GET("user/{uin}/devices")
+        suspend fun getUserDevices(
+            @Header("Authorization") token: String,
+            @Path("uin") uin: Long
+        ): List<DeviceInfoResponse>
+    }    private val client = OkHttpClient.Builder()
         .addInterceptor(HttpLoggingInterceptor())
         .build()
 
@@ -94,6 +104,9 @@ data class GroupMessageRequest(val senderUin: Long = 0, val group_id: Long, val 
 
 data class DiscoverRequest(val phones: List<String>)
 data class DiscoveredContactItem(val uin: Int, val phone: String, val nickname: String)
+
+data class RegisterDeviceRequest(val device_id: String, val pubkey: String, val device_name: String)
+data class DeviceInfoResponse(val device_id: String, val pubkey: String, val device_name: String, val last_seen: Long)
 
 data class TypingPayload(val sender_uin: Long, val receiver_uin: Long, val is_typing: Boolean)
 data class ReadReceiptPayload(val sender_uin: Long, val receiver_uin: Long, val read_until: Long)

@@ -102,6 +102,23 @@ class WsClient(
         } ?: Log.w(TAG, "WS not connected, dropping message")
     }
 
+    fun sendMultiDeviceMessage(senderUin: Long, receiverUin: Long, payloads: List<com.iromashka.crypto.CryptoManager.DevicePayload>) {
+        val payload = mapOf(
+            "type" to "Message",
+            "data" to mapOf(
+                "sender_uin" to senderUin,
+                "receiver_uin" to receiverUin,
+                "payloads" to payloads.map { mapOf("device_id" to it.device_id, "ciphertext" to it.ciphertext) },
+                "timestamp" to System.currentTimeMillis()
+            )
+        )
+        val json = gson.toJson(payload)
+        ws?.let { ws ->
+            val obfuscated = TransportObfuscator.encode(json.encodeToByteArray())
+            ws.send(okio.ByteString.of(*obfuscated))
+        } ?: Log.w(TAG, "WS not connected, dropping multi-device message")
+    }
+
     fun sendGroupMessage(req: GroupMessageRequest) {
         val payload = mapOf(
             "type" to "GroupMessage",
