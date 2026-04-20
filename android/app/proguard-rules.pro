@@ -21,3 +21,5 @@
 }
 -dontwarn kotlin.**
 -dontwarn kotlinx.**
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn com.google.crypto.tink.**
