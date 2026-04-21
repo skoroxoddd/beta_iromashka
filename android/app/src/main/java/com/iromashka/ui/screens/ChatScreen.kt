@@ -251,8 +251,8 @@ private fun MessageBubble(
 
 private fun playSound(ctx: android.content.Context, type: String) {
     val resId = when (type) {
-        "outgoing" -> com.iromashka.R.raw.iromashka_outgoing
-        else -> com.iromashka.R.raw.iromashka_message
+        "outgoing" -> com.iromashka.R.raw.outgoing_message
+        else -> com.iromashka.R.raw.incoming_message
     }
     if (resId != 0) {
         runCatching {

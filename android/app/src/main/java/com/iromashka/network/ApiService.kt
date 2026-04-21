@@ -26,62 +26,35 @@ object ApiService {
         suspend fun getPubKey(@Path("uin") uin: Long): PubKeyResponse
 
         @PUT("fcm-token")
-        suspend fun setFcmToken(
-            @Header("Authorization") token: String,
-            @Body body: FcmTokenRequest
-        )
+        suspend fun setFcmToken(@Header("Authorization") token: String, @Body body: FcmTokenRequest)
 
-        // Groups
         @POST("create-group")
-        suspend fun createGroup(
-            @Header("Authorization") token: String,
-            @Body body: CreateGroupRequest
-        ): GroupResponse
+        suspend fun createGroup(@Header("Authorization") token: String, @Body body: CreateGroupRequest): GroupResponse
 
         @GET("groups")
-        suspend fun listGroups(
-            @Header("Authorization") token: String
-        ): List<GroupItem>
+        suspend fun listGroups(@Header("Authorization") token: String): List<GroupItem>
 
         @GET("group/{id}/members")
-        suspend fun getGroupMembers(
-            @Header("Authorization") token: String,
-            @Path("id") groupId: Long
-        ): List<GroupMemberItem>
+        suspend fun getGroupMembers(@Header("Authorization") token: String, @Path("id") groupId: Long): List<GroupMemberItem>
 
         @POST("group/{id}/members")
-        suspend fun addGroupMember(
-            @Header("Authorization") token: String,
-            @Path("id") groupId: Long,
-            @Body body: AddMemberBody
-        )
+        suspend fun addGroupMember(@Header("Authorization") token: String, @Path("id") groupId: Long, @Body body: AddMemberBody)
 
-        // Contacts
         @POST("contacts/discover")
-        suspend fun discoverContacts(
-            @Header("Authorization") token: String,
-            @Body body: DiscoverRequest
-        ): List<DiscoveredContactItem>
+        suspend fun discoverContacts(@Header("Authorization") token: String, @Body body: DiscoverRequest): List<DiscoveredContactItem>
 
         @POST("change-pin")
-        suspend fun changePin(
-            @Header("Authorization") token: String,
-            @Body body: ChangePinRequest
-        ): ChangePinResponse
+        suspend fun changePin(@Header("Authorization") token: String, @Body body: ChangePinRequest): ChangePinResponse
 
         @POST("devices/register")
-        suspend fun registerDevice(
-            @Header("Authorization") token: String,
-            @Body body: RegisterDeviceRequest
-        )
+        suspend fun registerDevice(@Header("Authorization") token: String, @Body body: RegisterDeviceRequest)
 
         @GET("user/{uin}/devices")
-        suspend fun getUserDevices(
-            @Header("Authorization") token: String,
-            @Path("uin") uin: Long
-        ): List<DeviceInfoResponse>
-    }    private val client = OkHttpClient.Builder()
-        .addInterceptor(HttpLoggingInterceptor())
+        suspend fun getUserDevices(@Header("Authorization") token: String, @Path("uin") uin: Long): List<DeviceInfoResponse>
+    }
+
+    private val client = OkHttpClient.Builder()
+        .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.NONE })
         .build()
 
     private val retrofit = Retrofit.Builder()
@@ -92,8 +65,6 @@ object ApiService {
 
     val api: Api = retrofit.create(Api::class.java)
 }
-
-// ── Data classes used only by API (not duplicated with Models.kt) ──
 
 data class CreateGroupRequest(val name: String, val member_uins: List<Long>)
 data class GroupResponse(val id: Long, val name: String, val member_count: Int)
@@ -109,8 +80,6 @@ data class RegisterDeviceRequest(val device_id: String, val pubkey: String, val 
 data class DeviceInfoResponse(val device_id: String, val pubkey: String, val device_name: String, val last_seen: Long)
 
 data class TypingPayload(val sender_uin: Long, val receiver_uin: Long, val is_typing: Boolean)
-data class ReadReceiptPayload(val sender_uin: Long, val receiver_uin: Long, val read_until: Long)
 
-// ── Refresh token ──
 data class RefreshRequest(val refresh_token: String)
 data class RefreshResponse(val token: String, val refresh_token: String)

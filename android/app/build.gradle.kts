@@ -19,9 +19,9 @@ android {
     signingConfigs {
         create("release") {
             storeFile = file("iromashka-release.keystore")
-            storePassword = "255Bookmekerka25!!!"
-            keyAlias = "iromashka"
-            keyPassword = "255Bookmekerka25!!!"
+            storePassword = System.getenv("STORE_PASSWORD") ?: "255Bookmekerka25!!!"
+            keyAlias = System.getenv("KEY_ALIAS") ?: "iromashka"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "255Bookmekerka25!!!"
         }
     }
 
