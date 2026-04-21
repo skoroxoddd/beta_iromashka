@@ -1,10 +1,22 @@
 # Keep all app classes
 -keep class com.iromashka.** { *; }
--keepattributes Signature
--keepattributes *Annotation*
--keepattributes RuntimeVisibleAnnotations
--keepattributes EnclosingMethod
--keepattributes InnerClasses
+-keepattributes Signature, InnerClasses, EnclosingMethod
+-keepattributes RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
+-keepattributes AnnotationDefault
+
+# Retrofit
+-keepclassmembers,allowshrinking,allowobfuscation interface * {
+    @retrofit2.http.* <methods>;
+}
+-keep,allowobfuscation,allowshrinking interface retrofit2.Call
+-keep,allowobfuscation,allowshrinking class retrofit2.Response
+-keep,allowobfuscation,allowshrinking class retrofit2.** { *; }
+
+# Kotlin coroutines + suspend functions (критично для Retrofit suspend)
+-keep,allowobfuscation,allowshrinking class kotlin.coroutines.Continuation
+-dontwarn kotlin.Unit
+-dontwarn retrofit2.-KotlinExtensions
+-dontwarn retrofit2.-KotlinExtensions$*
 
 # Gson
 -keep class com.google.gson.** { *; }
@@ -14,13 +26,6 @@
 -keep,allowobfuscation,allowshrinking class * extends com.google.gson.TypeAdapter
 -keep,allowobfuscation,allowshrinking interface com.google.gson.TypeAdapterFactory
 -keep,allowobfuscation,allowshrinking class * implements com.google.gson.TypeAdapterFactory
-
-# Retrofit
--keep,allowobfuscation,allowshrinking class retrofit2.** { *; }
--keep,allowobfuscation,allowshrinking class retrofit2.converter.gson.GsonResponseBodyConverter
--keepclassmembers,allowshrinking,allowobfuscation interface * {
-    @retrofit2.http.* <methods>;
-}
 -keepclassmembers class * {
     @com.google.gson.annotations.SerializedName <fields>;
 }
@@ -32,6 +37,7 @@
 # Kotlin
 -dontwarn kotlin.**
 -dontwarn kotlinx.**
+-dontwarn javax.annotation.**
 
 # Misc
 -dontwarn com.google.errorprone.annotations.**
