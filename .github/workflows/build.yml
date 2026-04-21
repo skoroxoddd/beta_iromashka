@@ -22,23 +22,13 @@ jobs:
 
       - name: Decode keystore
         run: |
-          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/iromashka-release.keystore
-          else
-            keytool -genkeypair -v \
-              -keystore android/app/iromashka-release.keystore \
-              -alias iromashka \
-              -keyalg RSA -keysize 2048 -validity 36500 \
-              -storepass "255Bookmekerka25!!!" \
-              -keypass "255Bookmekerka25!!!" \
-              -dname "CN=iRomashka, O=IP Romanov, C=RU"
-          fi
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/iromashka-release.keystore
 
       - name: Build Release APK + AAB
         env:
-          STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD != '' && secrets.KEYSTORE_PASSWORD || '255Bookmekerka25!!!' }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD != '' && secrets.KEY_PASSWORD || '255Bookmekerka25!!!' }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS != '' && secrets.KEY_ALIAS || 'iromashka' }}
+          STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
           cd android
           chmod +x gradlew
