@@ -18,7 +18,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -62,7 +61,7 @@ fun ContactListScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Brush.horizontalGradient(palette.titleBar))
+                .background(palette.titleBar)
                 .padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
             Row(
@@ -90,7 +89,7 @@ fun ContactListScreen(
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         shadowElevation = 8.dp,
-                        color = palette.dropdownBg
+                        color = palette.surface
                     ) {
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(
@@ -513,7 +512,8 @@ private fun ThemePickerDialog(
                     ) {
                         RadioButton(selected = isSelected, onClick = { onSelected(mode.name) })
                         Spacer(Modifier.width(12.dp))
-                        Text(mode.name, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        val label = if (mode == ThemeMode.Light) "Светлая" else "Тёмная"
+                        Text(label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                             color = palette.textPrimary)
                     }
                 }
