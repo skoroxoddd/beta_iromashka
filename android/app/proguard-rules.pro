@@ -23,3 +23,12 @@
 -dontwarn kotlinx.**
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn com.google.crypto.tink.**
+
+# Retrofit + Gson: preserve generic type info for List<T> deserialization
+-keep class com.google.gson.reflect.TypeToken { *; }
+-keep class * extends com.google.gson.reflect.TypeToken
+-keep,allowobfuscation,allowshrinking class com.google.gson.TypeAdapter
+-keep,allowobfuscation,allowshrinking class * extends com.google.gson.TypeAdapter
+-keep,allowobfuscation,allowshrinking interface com.google.gson.TypeAdapterFactory
+-keep,allowobfuscation,allowshrinking class * implements com.google.gson.TypeAdapterFactory
+-keep,allowobfuscation,allowshrinking class retrofit2.converter.gson.GsonResponseBodyConverter
