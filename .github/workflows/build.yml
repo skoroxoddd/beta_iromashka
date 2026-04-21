@@ -22,7 +22,7 @@ jobs:
 
       - name: Decode keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/iromashka-release.keystore
+          printf '%s' "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/iromashka-release.keystore
 
       - name: Build Release APK + AAB
         env:
