@@ -2,7 +2,6 @@ package com.iromashka.crypto
 
 import android.util.Base64
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import java.security.*
 import java.security.spec.*
 import javax.crypto.*
@@ -118,11 +117,10 @@ object CryptoManager {
      * Returns null if decryption fails (tampered / wrong key).
      */
     fun decryptMessage(cipherJson: String, myPrivKey: PrivateKey): String? = runCatching {
-        val type = object : TypeToken<Map<String, Any>>() {}.type
-        val map: Map<String, Any> = gson.fromJson(cipherJson, type)
-        val ephPubBytes = Base64.decode(map["epk"] as String, Base64.NO_WRAP)
-        val iv  = Base64.decode(map["iv"] as String, Base64.NO_WRAP)
-        val ct  = Base64.decode(map["ct"] as String, Base64.NO_WRAP)
+        val obj = org.json.JSONObject(cipherJson)
+        val ephPubBytes = Base64.decode(obj.getString("epk"), Base64.NO_WRAP)
+        val iv  = Base64.decode(obj.getString("iv"), Base64.NO_WRAP)
+        val ct  = Base64.decode(obj.getString("ct"), Base64.NO_WRAP)
         val ephPub = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(ephPubBytes))
         val aesKey = ecdhAesKey(myPrivKey, ephPub)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
