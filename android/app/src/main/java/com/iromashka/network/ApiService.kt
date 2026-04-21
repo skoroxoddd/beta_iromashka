@@ -51,6 +51,19 @@ object ApiService {
 
         @GET("user/{uin}/devices")
         suspend fun getUserDevices(@Header("Authorization") token: String, @Path("uin") uin: Long): List<DeviceInfoResponse>
+
+        @GET("messages/sync")
+        suspend fun getSyncedMessages(
+            @Header("Authorization") token: String,
+            @Query("since") since: Long = 0,
+            @Query("limit") limit: Int = 500
+        ): List<SyncedMessageItem>
+
+        @POST("messages/sync")
+        suspend fun saveSyncedMessage(
+            @Header("Authorization") token: String,
+            @Body body: SaveSyncedMessageRequest
+        ): okhttp3.ResponseBody
     }
 
     private val client = OkHttpClient.Builder()
@@ -78,6 +91,20 @@ data class DiscoveredContactItem(val uin: Int, val phone: String, val nickname: 
 
 data class RegisterDeviceRequest(val device_id: String, val pubkey: String, val device_name: String)
 data class DeviceInfoResponse(val device_id: String, val pubkey: String, val device_name: String, val last_seen: Long)
+
+data class SyncedMessageItem(
+    val sender_uin: Long,
+    val receiver_uin: Long,
+    val ciphertext: String,
+    val timestamp: Long
+)
+
+data class SaveSyncedMessageRequest(
+    val sender_uin: Long,
+    val receiver_uin: Long,
+    val ciphertext: String,
+    val timestamp: Long
+)
 
 data class TypingPayload(val sender_uin: Long, val receiver_uin: Long, val is_typing: Boolean)
 

@@ -110,6 +110,54 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+        syncHistoryForChat(chatUin)
+    }
+
+    // Fetch history from server for a specific chat
+    private fun syncHistoryForChat(chatUin: Long) {
+        val myUin = Prefs.getUin(ctx)
+        val token = Prefs.getToken(ctx)
+        val privKey = myPrivKey ?: return
+        if (token.isEmpty()) return
+
+        viewModelScope.launch {
+            runCatching {
+                // Get latest local timestamp to only fetch newer messages
+                val lastLocal = msgDao.getLastMessage(chatUin)?.timestamp ?: 0L
+                val items = api.getSyncedMessages("Bearer $token", since = lastLocal)
+                // Filter only messages related to this chat
+                val relevant = items.filter {
+                    (it.sender_uin == chatUin && it.receiver_uin == myUin) ||
+                    (it.sender_uin == myUin && it.receiver_uin == chatUin)
+                }
+                for (item in relevant) {
+                    val isOutgoing = item.sender_uin == myUin
+                    val plaintext = if (isOutgoing) {
+                        // Outgoing messages: try to decrypt, fallback stored as plaintext
+                        runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
+                            ?: item.ciphertext
+                    } else {
+                        runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
+                            ?: "[не удалось расшифровать]"
+                    }
+                    // Only insert if not already present (by timestamp+uin)
+                    val existing = msgDao.getByTimestampAndUins(item.timestamp, item.sender_uin, item.receiver_uin)
+                    if (existing == null) {
+                        msgDao.insertMessage(MessageEntity(
+                            chatUin = chatUin,
+                            senderUin = item.sender_uin,
+                            receiverUin = item.receiver_uin,
+                            text = plaintext,
+                            timestamp = item.timestamp,
+                            isOutgoing = isOutgoing,
+                            isE2E = true
+                        ))
+                    }
+                }
+            }.onFailure { e ->
+                android.util.Log.w("ChatVM", "History sync failed: ${e.message}")
+            }
+        }
     }
 
     // -- Session init
@@ -358,6 +406,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     isOutgoing = true,
                     isE2E = true
                 ))
+                // Save to server for history persistence
+                val token = Prefs.getToken(ctx)
+                if (token.isNotEmpty()) {
+                    runCatching {
+                        api.saveSyncedMessage("Bearer $token", com.iromashka.network.SaveSyncedMessageRequest(
+                            sender_uin = myUin,
+                            receiver_uin = toUin,
+                            ciphertext = ciphertext,
+                            timestamp = System.currentTimeMillis()
+                        ))
+                    }
+                }
             }.onFailure { err ->
                 android.util.Log.e("ChatVM", "SendMessage failed: ${err.message}")
                 _wsConnected.value = false

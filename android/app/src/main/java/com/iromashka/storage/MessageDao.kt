@@ -12,6 +12,9 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE chatUin = :chatUin ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLastMessage(chatUin: Long): MessageEntity?
 
+    @Query("SELECT * FROM messages WHERE timestamp = :ts AND senderUin = :senderUin AND receiverUin = :receiverUin LIMIT 1")
+    suspend fun getByTimestampAndUins(ts: Long, senderUin: Long, receiverUin: Long): MessageEntity?
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMessage(msg: MessageEntity): Long
 
