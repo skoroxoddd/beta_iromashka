@@ -314,7 +314,7 @@ private fun ContactItem(contact: ContactEntity, palette: com.iromashka.ui.theme.
     ) {
         Box(
             modifier = Modifier.size(40.dp).clip(CircleShape)
-                .background(palette.avatar),
+                .background(palette.accent),
             contentAlignment = Alignment.Center
         ) {
             Text(
