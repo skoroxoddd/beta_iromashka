@@ -24,7 +24,7 @@ import com.iromashka.viewmodel.AuthViewModel
 @Composable
 fun LoginScreen(
     viewModel: AuthViewModel,
-    onSuccess: (Long) -> Unit,
+    onSuccess: (Long, String) -> Unit,
     onRegister: () -> Unit
 ) {
     val p = LocalThemePalette.current
@@ -34,7 +34,7 @@ fun LoginScreen(
     var pinInput by remember { mutableStateOf("") }
 
     LaunchedEffect(state) {
-        if (state is AuthState.Success) onSuccess((state as AuthState.Success).uin)
+        if (state is AuthState.Success) onSuccess((state as AuthState.Success).uin, pinInput)
     }
 
     Box(Modifier.fillMaxSize().background(p.background)) {

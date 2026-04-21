@@ -143,7 +143,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             viewModelScope.launch {
                 ws.events.collect { event ->
                     when (event) {
-                        is WsEvent.Connected    -> _wsConnected.value = true
+                        is WsEvent.Connected    -> {
+                            _wsConnected.value = true
+                            ensureBotContact()
+                        }
                         is WsEvent.Disconnected -> _wsConnected.value = false
                         is WsEvent.AuthFailed   -> {
                             _wsConnected.value = false
@@ -389,6 +392,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun addContact(uin: Long, nickname: String) {
         viewModelScope.launch {
             contactDao.insert(ContactEntity(uin, nickname))
+        }
+    }
+
+    private fun ensureBotContact() {
+        viewModelScope.launch {
+            val existing = contactDao.getByUin(100000L)
+            if (existing == null) {
+                contactDao.insert(ContactEntity(100000L, "АйРомашка Бот"))
+            }
         }
     }
 

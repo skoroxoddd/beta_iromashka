@@ -4,10 +4,16 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 object Prefs {
     private const val NAME_SECURE = "icq20_secure"
     private const val NAME_SIMPLE = "icq20_pref"
+
+    // Observable theme state — changes trigger recomposition immediately
+    private val _themeFlow = MutableStateFlow("Light")
+    val themeFlow: StateFlow<String> = _themeFlow
     
     private fun securePrefs(ctx: Context): SharedPreferences {
         val masterKey = MasterKey.Builder(ctx)
@@ -74,9 +80,10 @@ object Prefs {
     }
 
     // Theme
-    fun getTheme(ctx: Context): String = simplePrefs(ctx).getString("theme", "Iromashka") ?: "ICQ"
+    fun getTheme(ctx: Context): String = simplePrefs(ctx).getString("theme", "Light") ?: "Light"
     fun setTheme(ctx: Context, theme: String) {
         simplePrefs(ctx).edit().putString("theme", theme).apply()
+        _themeFlow.value = theme
     }
 
     fun getDeviceId(ctx: Context): String {

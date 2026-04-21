@@ -75,7 +75,10 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
         composable("login") {
             LoginScreen(
                 viewModel = authVm,
-                onSuccess = { _ ->
+                onSuccess = { _, pin ->
+                    // Init E2E keys and start WS right after login
+                    chatVm.init(pin)
+                    chatVm.connectWs()
                     navController.navigate("contacts") {
                         popUpTo("login") { inclusive = true }
                     }

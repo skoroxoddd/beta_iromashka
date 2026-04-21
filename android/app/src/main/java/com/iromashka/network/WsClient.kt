@@ -159,14 +159,11 @@ class WsClient(
             retryCount = 0
             val auth = gson.toJson(WsAuthPacket(uin, token))
             webSocket.send(auth)
-            scope.launch { _events.emit(WsEvent.Connected) }
+            // Connected state set when auth_ok is received in onMessage
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            val env = tryParseEnvelope(text)
-            if (env != null) {
-                scope.launch { _events.emit(WsEvent.MessageReceived(env)) }
-            }
+            handleMessage(text)
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
@@ -181,6 +178,14 @@ class WsClient(
 
         private fun handleMessage(text: String) {
             Log.d(TAG, "WS msg: $text")
+            // Check for auth_ok system message
+            runCatching {
+                val obj = org.json.JSONObject(text)
+                if (obj.optString("sys") == "auth_ok") {
+                    scope.launch { _events.emit(WsEvent.Connected) }
+                    return
+                }
+            }
             // Try envelope
             val env = tryParseEnvelope(text)
             if (env != null) {
