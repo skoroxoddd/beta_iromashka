@@ -4,8 +4,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.iromashka.storage.Prefs
-import kotlinx.coroutines.flow.collectAsState
 
 enum class ThemeMode { Light, Dark }
 
@@ -83,7 +83,7 @@ val LocalThemeMode = compositionLocalOf<ThemeMode> { ThemeMode.Light }
 @Composable
 fun AppTheme(content: @Composable () -> Unit) {
     val ctx = LocalContext.current
-    val themeName by Prefs.themeFlow.collectAsState(initial = Prefs.getTheme(ctx))
+    val themeName by Prefs.themeFlow.collectAsStateWithLifecycle(initialValue = Prefs.getTheme(ctx))
     val mode = if (themeName == "Dark") ThemeMode.Dark else ThemeMode.Light
     val palette = if (mode == ThemeMode.Dark) DarkPalette else LightPalette
 
