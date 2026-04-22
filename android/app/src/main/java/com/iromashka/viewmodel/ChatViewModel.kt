@@ -181,6 +181,41 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }.getOrDefault(false)
     }
 
+    // Used when wrappedPriv is missing (EncryptedSharedPreferences cleared, reinstall, etc.)
+    // Recovers the key from server via login API, then unlocks
+    fun initWithServerRecovery(pin: String, onResult: (Boolean) -> Unit) {
+        val uin = Prefs.getUin(ctx)
+        val wrappedPriv = Prefs.getWrappedPriv(ctx)
+
+        // Fast path: key exists locally
+        if (wrappedPriv.isNotEmpty()) {
+            onResult(init(pin))
+            return
+        }
+
+        // Key missing — recover from server
+        viewModelScope.launch {
+            val ok = runCatching {
+                val resp = api.login(com.iromashka.model.LoginRequest(uin, pin))
+                val recovered = resp.encrypted_key
+                    ?: run { android.util.Log.e("ChatVM", "Server has no saved key for UIN $uin"); return@runCatching false }
+
+                Prefs.updateToken(ctx, resp.token)
+                Prefs.updateRefreshToken(ctx, resp.refresh_token)
+                Prefs.updateTokenTimestamp(ctx, System.currentTimeMillis())
+                Prefs.updateWrappedPriv(ctx, recovered)
+
+                myPrivKey = CryptoManager.unwrapPrivateKey(recovered, pin)
+                android.util.Log.i("ChatVM", "Key recovered from server for UIN $uin")
+                true
+            }.onFailure {
+                android.util.Log.e("ChatVM", "Server key recovery failed: ${it.message}")
+                _e2eError.value = "Неверный PIN или ключ не найден на сервере"
+            }.getOrDefault(false)
+            onResult(ok)
+        }
+    }
+
     fun connectWs() {
         val uin = Prefs.getUin(ctx)
         val token = Prefs.getToken(ctx)
@@ -194,6 +229,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         is WsEvent.Connected    -> {
                             _wsConnected.value = true
                             ensureBotContact()
+                            syncAllHistory()
                         }
                         is WsEvent.Disconnected -> _wsConnected.value = false
                         is WsEvent.AuthFailed   -> {
@@ -460,6 +496,52 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             val existing = contactDao.getByUin(100000L)
             if (existing == null) {
                 contactDao.insert(ContactEntity(100000L, "АйРомашка Бот"))
+            }
+        }
+    }
+
+    // Sync all history from server on connect, add senders to contacts if missing
+    private fun syncAllHistory() {
+        val myUin = Prefs.getUin(ctx)
+        val token = Prefs.getToken(ctx)
+        val privKey = myPrivKey ?: return
+        if (token.isEmpty()) return
+
+        viewModelScope.launch {
+            runCatching {
+                val items = api.getSyncedMessages("Bearer $token", since = 0, limit = 1000)
+                for (item in items) {
+                    val chatUin = if (item.sender_uin == myUin) item.receiver_uin else item.sender_uin
+                    val isOutgoing = item.sender_uin == myUin
+
+                    val plaintext = if (isOutgoing) {
+                        runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
+                            ?: item.ciphertext
+                    } else {
+                        runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
+                            ?: "[не удалось расшифровать]"
+                    }
+
+                    val existing = msgDao.getByTimestampAndUins(item.timestamp, item.sender_uin, item.receiver_uin)
+                    if (existing == null) {
+                        msgDao.insertMessage(MessageEntity(
+                            chatUin = chatUin,
+                            senderUin = item.sender_uin,
+                            receiverUin = item.receiver_uin,
+                            text = plaintext,
+                            timestamp = item.timestamp,
+                            isOutgoing = isOutgoing,
+                            isE2E = true
+                        ))
+                    }
+
+                    // Auto-add contact if not in list
+                    if (contactDao.getByUin(chatUin) == null && chatUin != myUin) {
+                        contactDao.insert(ContactEntity(chatUin, "UIN $chatUin"))
+                    }
+                }
+            }.onFailure { e ->
+                android.util.Log.w("ChatVM", "syncAllHistory failed: ${e.message}")
             }
         }
     }

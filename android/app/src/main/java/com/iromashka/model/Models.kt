@@ -18,13 +18,17 @@ data class RegisterResponse(
 
 data class LoginRequest(
     val uin: Long,
-    val pin: String
+    val pin: String,
+    val public_key: String? = null
 )
 
 data class LoginResponse(
     val token: String,
     val uin: Long,
-    val refresh_token: String = ""
+    val refresh_token: String = "",
+    val encrypted_key: String? = null,
+    val key_salt: String? = null,
+    val new_session: Boolean = false
 )
 
 data class ChangePinRequest(

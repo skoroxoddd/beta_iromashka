@@ -64,6 +64,12 @@ object ApiService {
             @Header("Authorization") token: String,
             @Body body: SaveSyncedMessageRequest
         ): okhttp3.ResponseBody
+
+        @POST("save-key")
+        suspend fun saveUserKey(
+            @Header("Authorization") token: String,
+            @Body body: SaveKeyRequest
+        ): okhttp3.ResponseBody
     }
 
     private val client = OkHttpClient.Builder()
@@ -104,6 +110,11 @@ data class SaveSyncedMessageRequest(
     val receiver_uin: Long,
     val ciphertext: String,
     val timestamp: Long
+)
+
+data class SaveKeyRequest(
+    val encrypted_key: String,
+    val salt: String
 )
 
 data class TypingPayload(val sender_uin: Long, val receiver_uin: Long, val is_typing: Boolean)

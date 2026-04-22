@@ -38,6 +38,15 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
 
                 Prefs.saveSession(ctx, resp.uin, nickname, resp.token, wrappedPriv, pubB64, resp.refresh_token)
                 registerDevice(resp.token, pubB64)
+
+                // Save wrapped private key to server for cross-device recovery
+                runCatching {
+                    api.saveUserKey("Bearer ${resp.token}", com.iromashka.network.SaveKeyRequest(
+                        encrypted_key = wrappedPriv,
+                        salt = ""
+                    ))
+                }
+
                 _state.value = AuthState.Success(resp.uin)
             }.onFailure {
                 _state.value = AuthState.Error(it.message ?: "Registration failed")
@@ -50,16 +59,28 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = AuthState.Loading
             runCatching {
                 val wrappedPriv = Prefs.getWrappedPriv(ctx)
-                if (wrappedPriv.isNotEmpty() && !CryptoManager.verifyPin(wrappedPriv, pin)) {
-                    _state.value = AuthState.Error("Неверный PIN-код")
-                    return@launch
+
+                // Local key exists — verify PIN before hitting server
+                if (wrappedPriv.isNotEmpty()) {
+                    if (!CryptoManager.verifyPin(wrappedPriv, pin)) {
+                        _state.value = AuthState.Error("Неверный PIN-код")
+                        return@launch
+                    }
                 }
 
-                val resp = api.login(LoginRequest(uin, pin))
+                val pubKey = Prefs.getPubKey(ctx)
+                val resp = api.login(LoginRequest(uin, pin, pubKey.ifEmpty { null }))
                 Prefs.updateToken(ctx, resp.token)
                 Prefs.updateRefreshToken(ctx, resp.refresh_token)
                 Prefs.updateTokenTimestamp(ctx, System.currentTimeMillis())
                 Prefs.updateUin(ctx, resp.uin)
+
+                // Restore wrapped private key from server if missing locally (new device)
+                if (wrappedPriv.isEmpty() && resp.encrypted_key != null) {
+                    Prefs.updateWrappedPriv(ctx, resp.encrypted_key)
+                    android.util.Log.i("AuthVM", "Restored wrapped private key from server")
+                }
+
                 registerDevice(resp.token, Prefs.getPubKey(ctx))
                 _state.value = AuthState.Success(resp.uin)
             }.onFailure {
