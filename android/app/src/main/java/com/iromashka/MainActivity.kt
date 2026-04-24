@@ -143,7 +143,6 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                 onUnlock = { pin ->
                     val wrappedPriv = Prefs.getWrappedPriv(ctx)
                     if (wrappedPriv.isNotEmpty()) {
-                        // Normal path: key is local
                         val ok = chatVm.init(pin)
                         if (ok) {
                             chatVm.connectWs()
@@ -153,16 +152,22 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                         }
                         ok
                     } else {
-                        // Key was lost (reinstall/EncryptedSharedPreferences cleared) — recover from server
-                        chatVm.initWithServerRecovery(pin) { ok ->
-                            if (ok) {
-                                chatVm.connectWs()
-                                navController.navigate("contacts") {
-                                    popUpTo("pin_unlock") { inclusive = true }
-                                }
+                        // Key was lost / user registered via PWA — recover from server
+                        val ok = chatVm.initWithServerRecoverySuspending(pin)
+                        if (ok) {
+                            chatVm.connectWs()
+                            navController.navigate("contacts") {
+                                popUpTo("pin_unlock") { inclusive = true }
                             }
                         }
-                        true // don't show error immediately — result comes async
+                        ok
+                    }
+                },
+                onResetAndRelogin = {
+                    chatVm.disconnectWs()
+                    Prefs.clear(ctx)
+                    navController.navigate("login") {
+                        popUpTo(0) { inclusive = true }
                     }
                 }
             )

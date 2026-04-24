@@ -19,14 +19,22 @@ import androidx.compose.ui.unit.*
 import com.iromashka.R
 import com.iromashka.storage.Prefs
 import com.iromashka.ui.theme.LocalThemePalette
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
-fun PinUnlockScreen(onUnlock: (String) -> Boolean) {
+fun PinUnlockScreen(
+    onUnlock: suspend (String) -> Boolean,
+    onResetAndRelogin: () -> Unit = {},
+) {
     val p = LocalThemePalette.current
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var pin by remember { mutableStateOf("") }
     var isError by remember { mutableStateOf(false) }
+    var errorText by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var remainingSecs by remember { mutableStateOf(Prefs.getPinLockoutRemainingSecs(ctx)) }
 
@@ -67,14 +75,15 @@ fun PinUnlockScreen(onUnlock: (String) -> Boolean) {
                     OutlinedTextField(
                         value = pin,
                         onValueChange = {
-                            if (it.length <= 6 && !isLocked) {
+                            if (it.length <= 20 && !isLocked && !isLoading) {
                                 pin = it.filter { c -> c.isDigit() }
                                 isError = false
+                                errorText = null
                             }
                         },
                         label = { Text("PIN-код", color = p.textSecondary) },
                         singleLine = true,
-                        enabled = !isLocked,
+                        enabled = !isLocked && !isLoading,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         isError = isError,
@@ -90,7 +99,7 @@ fun PinUnlockScreen(onUnlock: (String) -> Boolean) {
 
                     if (isError) {
                         Spacer(Modifier.height(4.dp))
-                        Text("Неверный PIN-код", color = p.errorRed, fontSize = 12.sp)
+                        Text(errorText ?: "Неверный PIN-код", color = p.errorRed, fontSize = 12.sp)
                     }
 
                     if (isLocked) {
@@ -111,16 +120,30 @@ fun PinUnlockScreen(onUnlock: (String) -> Boolean) {
 
                     Button(
                         onClick = {
-                            if (pin.length >= 6 && !isLocked) {
+                            if (pin.length >= 6 && !isLocked && !isLoading) {
                                 isLoading = true
-                                if (!onUnlock(pin)) {
-                                    Prefs.recordPinFailure(ctx)
-                                    isError = true; pin = ""
-                                    remainingSecs = Prefs.getPinLockoutRemainingSecs(ctx)
-                                } else {
-                                    Prefs.resetPinFailures(ctx)
+                                isError = false
+                                errorText = null
+                                val attemptPin = pin
+                                scope.launch {
+                                    val ok = runCatching {
+                                        withContext(Dispatchers.Default) { onUnlock(attemptPin) }
+                                    }.onFailure { e ->
+                                        android.util.Log.e("PinUnlock", "onUnlock threw: ${e.message}", e)
+                                        errorText = "Ошибка: ${e.message ?: "неизвестно"}"
+                                    }.getOrDefault(false)
+
+                                    if (!ok) {
+                                        Prefs.recordPinFailure(ctx)
+                                        isError = true
+                                        if (errorText == null) errorText = "Неверный PIN-код"
+                                        pin = ""
+                                        remainingSecs = Prefs.getPinLockoutRemainingSecs(ctx)
+                                    } else {
+                                        Prefs.resetPinFailures(ctx)
+                                    }
+                                    isLoading = false
                                 }
-                                isLoading = false
                             }
                         },
                         enabled = pin.length >= 6 && !isLoading && !isLocked,
@@ -133,6 +156,14 @@ fun PinUnlockScreen(onUnlock: (String) -> Boolean) {
                         } else {
                             Text("Войти", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = Color.White)
                         }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    TextButton(
+                        onClick = onResetAndRelogin,
+                        enabled = !isLoading,
+                    ) {
+                        Text("Забыли PIN? Войти заново", color = p.textMuted, fontSize = 13.sp)
                     }
                 }
             }
