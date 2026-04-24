@@ -18,6 +18,14 @@ sealed class AuthState {
     data class Error(val message: String) : AuthState()
 }
 
+sealed class PaymentState {
+    object Idle : PaymentState()
+    object Loading : PaymentState()
+    data class Created(val confirmationUrl: String, val phone: String) : PaymentState()
+    object Paid : PaymentState()
+    data class Error(val message: String) : PaymentState()
+}
+
 class AuthViewModel(app: Application) : AndroidViewModel(app) {
 
     private val api = ApiService.api
@@ -25,6 +33,46 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _state = MutableStateFlow<AuthState>(AuthState.Idle)
     val state: StateFlow<AuthState> = _state
+
+    private val _paymentState = MutableStateFlow<PaymentState>(PaymentState.Idle)
+    val paymentState: StateFlow<PaymentState> = _paymentState
+
+    fun createPayment(phone: String) {
+        viewModelScope.launch {
+            _paymentState.value = PaymentState.Loading
+            runCatching {
+                val clean = phone.filter { it.isDigit() }
+                if (clean.length < 7) throw IllegalArgumentException("Неверный номер")
+                val resp = api.createPayment(PaymentCreateRequest(phone = clean, amount = "100.00"))
+                _paymentState.value = PaymentState.Created(resp.confirmation_url, clean)
+            }.onFailure {
+                val msg = when {
+                    it.message?.contains("409") == true -> "Номер уже оплачен"
+                    it.message?.contains("429") == true -> "Слишком много попыток, подождите"
+                    else -> "Не удалось создать платёж"
+                }
+                _paymentState.value = PaymentState.Error(msg)
+            }
+        }
+    }
+
+    fun pollPaymentStatus(phone: String) {
+        viewModelScope.launch {
+            val clean = phone.filter { it.isDigit() }
+            repeat(60) {
+                kotlinx.coroutines.delay(2000)
+                val paid = runCatching { api.paymentStatus(clean).paid }.getOrDefault(false)
+                if (paid) {
+                    _paymentState.value = PaymentState.Paid
+                    return@launch
+                }
+            }
+        }
+    }
+
+    fun resetPayment() {
+        _paymentState.value = PaymentState.Idle
+    }
 
     fun register(nickname: String, pin: String, phone: String = "70000000000") {
         viewModelScope.launch {

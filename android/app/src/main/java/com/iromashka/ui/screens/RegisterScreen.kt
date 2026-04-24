@@ -24,6 +24,7 @@ import com.iromashka.viewmodel.AuthViewModel
 @Composable
 fun RegisterScreen(
     viewModel: AuthViewModel,
+    paidPhone: String,
     onSuccess: (Long) -> Unit,
     onBack: () -> Unit
 ) {
@@ -33,7 +34,7 @@ fun RegisterScreen(
     var nickname by remember { mutableStateOf("") }
     var pin by remember { mutableStateOf("") }
     var pin2 by remember { mutableStateOf("") }
-    var phone by remember { mutableStateOf("") }
+    val phone = paidPhone
 
     LaunchedEffect(state) {
         if (state is AuthState.Success) onSuccess((state as AuthState.Success).uin)

@@ -70,6 +70,12 @@ object ApiService {
             @Header("Authorization") token: String,
             @Body body: SaveKeyRequest
         ): okhttp3.ResponseBody
+
+        @POST("payment/create")
+        suspend fun createPayment(@Body body: PaymentCreateRequest): PaymentCreateResponse
+
+        @GET("payment/status")
+        suspend fun paymentStatus(@retrofit2.http.Query("phone") phone: String): PaymentStatusResponse
     }
 
     private val client = OkHttpClient.Builder()

@@ -56,6 +56,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
     val navController = rememberNavController()
 
     var sessionPin by remember { mutableStateOf("") }
+    var paidPhone by remember { mutableStateOf("") }
 
     val startDest = if (Prefs.isLoggedIn(ctx)) "pin_unlock" else "login"
 
@@ -83,13 +84,27 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                         popUpTo("login") { inclusive = true }
                     }
                 },
-                onRegister = { navController.navigate("register") }
+                onRegister = { navController.navigate("phone_payment") }
+            )
+        }
+
+        composable("phone_payment") {
+            PhonePaymentScreen(
+                viewModel = authVm,
+                onPaid = { phone ->
+                    paidPhone = phone
+                    navController.navigate("register") {
+                        popUpTo("phone_payment") { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() }
             )
         }
 
         composable("register") {
             RegisterScreen(
                 viewModel = authVm,
+                paidPhone = paidPhone,
                 onSuccess = { _ ->
                     navController.navigate("pin_unlock") {
                         popUpTo(0) { inclusive = true }

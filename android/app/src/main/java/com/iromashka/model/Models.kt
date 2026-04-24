@@ -71,3 +71,17 @@ data class Contact(
     val unread: Int = 0
 )
 
+
+data class PaymentCreateRequest(
+    val phone: String,
+    val amount: String? = "100.00"
+)
+
+data class PaymentCreateResponse(
+    val payment_id: String,
+    val confirmation_url: String
+)
+
+data class PaymentStatusResponse(
+    val paid: Boolean
+)
