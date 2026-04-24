@@ -123,10 +123,35 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 Prefs.updateTokenTimestamp(ctx, System.currentTimeMillis())
                 Prefs.updateUin(ctx, resp.uin)
 
-                // Restore wrapped private key from server if missing locally (new device)
-                if (wrappedPriv.isEmpty() && resp.encrypted_key != null) {
-                    Prefs.updateWrappedPriv(ctx, resp.encrypted_key)
-                    android.util.Log.i("AuthVM", "Restored wrapped private key from server")
+                // First-time login on this device (no local wrapped key)
+                if (wrappedPriv.isEmpty()) {
+                    val serverKey = resp.encrypted_key
+                    val restored = if (!serverKey.isNullOrEmpty()) {
+                        // Try to unwrap whatever the server has (Android-compact OR PWA-json fallback)
+                        runCatching { CryptoManager.unwrapPrivateKey(serverKey, pin) }.isSuccess
+                    } else false
+
+                    if (restored) {
+                        Prefs.updateWrappedPriv(ctx, serverKey!!)
+                        android.util.Log.i("AuthVM", "Restored wrapped private key from server")
+                    } else {
+                        // PWA-registered user OR incompatible server key — generate fresh keypair.
+                        // Tradeoff: previous E2E history is lost; PIN unlock and future messages work.
+                        val kp = CryptoManager.generateKeyPair()
+                        val newWrapped = CryptoManager.wrapPrivateKey(kp.private, pin)
+                        val newPub = CryptoManager.exportPublicKey(kp.public)
+                        Prefs.updateWrappedPriv(ctx, newWrapped)
+                        Prefs.updatePubKey(ctx, newPub)
+                        runCatching {
+                            api.updatePubkey("Bearer ${}{resp.token}",
+                                com.iromashka.network.UpdatePubkeyRequest(newPub))
+                        }
+                        runCatching {
+                            api.saveUserKey("Bearer ${}{resp.token}",
+                                com.iromashka.network.SaveKeyRequest(encrypted_key = newWrapped, salt = ""))
+                        }
+                        android.util.Log.w("AuthVM", "No usable server key for UIN ${}uin — generated fresh keypair")
+                    }
                 }
 
                 registerDevice(resp.token, Prefs.getPubKey(ctx))

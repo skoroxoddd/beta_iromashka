@@ -67,6 +67,10 @@ object Prefs {
         securePrefs(ctx).edit().putString("wrapped_priv", wrappedPriv).apply()
     }
 
+    fun updatePubKey(ctx: Context, pubKey: String) {
+        securePrefs(ctx).edit().putString("pub_key", pubKey).apply()
+    }
+
     fun getUin(ctx: Context): Long = securePrefs(ctx).getLong("uin", -1L)
     fun getNickname(ctx: Context): String = securePrefs(ctx).getString("nickname", "") ?: ""
     fun getToken(ctx: Context): String = securePrefs(ctx).getString("token", "") ?: ""

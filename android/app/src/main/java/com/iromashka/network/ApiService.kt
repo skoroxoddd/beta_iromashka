@@ -71,6 +71,12 @@ object ApiService {
             @Body body: SaveKeyRequest
         ): okhttp3.ResponseBody
 
+        @POST("update-pubkey")
+        suspend fun updatePubkey(
+            @Header("Authorization") token: String,
+            @Body body: UpdatePubkeyRequest
+        ): okhttp3.ResponseBody
+
         @POST("payment/create")
         suspend fun createPayment(@Body body: PaymentCreateRequest): PaymentCreateResponse
 
@@ -122,6 +128,8 @@ data class SaveKeyRequest(
     val encrypted_key: String,
     val salt: String
 )
+
+data class UpdatePubkeyRequest(val pubkey: String)
 
 data class TypingPayload(val sender_uin: Long, val receiver_uin: Long, val is_typing: Boolean)
 
