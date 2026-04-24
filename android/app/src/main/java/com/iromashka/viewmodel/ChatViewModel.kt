@@ -169,15 +169,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val wrappedPriv = Prefs.getWrappedPriv(ctx)
         if (wrappedPriv.isEmpty()) {
             android.util.Log.e("ChatVM", "No wrapped private key found")
-            _e2eError.value = "Ключи не найдены. Войдите заново."
+            _e2eError.value = "Ключи не найдены. Перерегистрируйтесь."
             return false
         }
         return runCatching {
             myPrivKey = CryptoManager.unwrapPrivateKey(wrappedPriv, pin)
-            android.util.Log.d("ChatVM", "E2E init OK (format: ${if (wrappedPriv.trim().startsWith("{")) "PWA-json" else "android-compact"})")
             true
         }.onFailure {
-            android.util.Log.e("ChatVM", "E2E init failed: ${it.message}", it)
+            android.util.Log.e("ChatVM", "E2E init failed: ${it.message}")
             _e2eError.value = "Неверный PIN или ключ повреждён"
         }.getOrDefault(false)
     }
@@ -196,40 +195,25 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         // Key missing — recover from server
         viewModelScope.launch {
-            onResult(doServerRecovery(uin, pin))
+            val ok = runCatching {
+                val resp = api.login(com.iromashka.model.LoginRequest(uin, pin))
+                val recovered = resp.encrypted_key
+                    ?: run { android.util.Log.e("ChatVM", "Server has no saved key for UIN $uin"); return@runCatching false }
+
+                Prefs.updateToken(ctx, resp.token)
+                Prefs.updateRefreshToken(ctx, resp.refresh_token)
+                Prefs.updateTokenTimestamp(ctx, System.currentTimeMillis())
+                Prefs.updateWrappedPriv(ctx, recovered)
+
+                myPrivKey = CryptoManager.unwrapPrivateKey(recovered, pin)
+                android.util.Log.i("ChatVM", "Key recovered from server for UIN $uin")
+                true
+            }.onFailure {
+                android.util.Log.e("ChatVM", "Server key recovery failed: ${it.message}")
+                _e2eError.value = "Неверный PIN или ключ не найден на сервере"
+            }.getOrDefault(false)
+            onResult(ok)
         }
-    }
-
-    /** Suspending version for PinUnlockScreen Dispatchers.Default path. */
-    suspend fun initWithServerRecoverySuspending(pin: String): Boolean {
-        val uin = Prefs.getUin(ctx)
-        val wrappedPriv = Prefs.getWrappedPriv(ctx)
-        if (wrappedPriv.isNotEmpty()) return init(pin)
-        return doServerRecovery(uin, pin)
-    }
-
-    private suspend fun doServerRecovery(uin: Long, pin: String): Boolean {
-        return runCatching {
-            val resp = api.login(com.iromashka.model.LoginRequest(uin, pin))
-            val recovered = resp.encrypted_key
-                ?: run {
-                    android.util.Log.e("ChatVM", "Server has no saved key for UIN $uin")
-                    _e2eError.value = "Ключи не найдены на сервере. Войдите заново."
-                    return@runCatching false
-                }
-
-            Prefs.updateToken(ctx, resp.token)
-            Prefs.updateRefreshToken(ctx, resp.refresh_token)
-            Prefs.updateTokenTimestamp(ctx, System.currentTimeMillis())
-            Prefs.updateWrappedPriv(ctx, recovered)
-
-            myPrivKey = CryptoManager.unwrapPrivateKey(recovered, pin)
-            android.util.Log.i("ChatVM", "Key recovered from server for UIN $uin (format: ${if (recovered.startsWith("{")) "PWA-json" else "android-compact"})")
-            true
-        }.onFailure {
-            android.util.Log.e("ChatVM", "Server key recovery failed: ${it.message}", it)
-            _e2eError.value = "Неверный PIN или ключ не найден на сервере"
-        }.getOrDefault(false)
     }
 
     fun connectWs() {

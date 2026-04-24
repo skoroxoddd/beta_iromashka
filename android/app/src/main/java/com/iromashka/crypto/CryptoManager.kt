@@ -35,10 +35,6 @@ object CryptoManager {
 
     // ── Private key wrapping ────────────────────────────────────────────────
 
-    /**
-     * Wrap private key with PIN.
-     * Android-native compact format: base64( salt[16] || iv[12] || ciphertext ).
-     */
     fun wrapPrivateKey(priv: PrivateKey, pin: String): String {
         val salt = randomBytes(16)
         val iv = randomBytes(12)
@@ -49,59 +45,11 @@ object CryptoManager {
         return Base64.encodeToString(salt + iv + ct, Base64.NO_WRAP)
     }
 
-    /**
-     * Wrap private key in PWA-compatible JSON format.
-     * Format: {"ct": base64(aes-gcm-wrapped-pkcs8), "iv": base64(iv), "salt": base64(salt)}
-     * This matches what PWA saves to /api/save-key for cross-device recovery.
-     */
-    fun wrapPrivateKeyPwa(priv: PrivateKey, pin: String): Pair<String, String> {
-        val salt = randomBytes(16)
-        val iv = randomBytes(12)
-        val aesKey = pbkdf2Key(pin, salt)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
-        val ct = cipher.doFinal(priv.encoded)
-        val saltB64 = Base64.encodeToString(salt, Base64.NO_WRAP)
-        val json = JSONObject()
-            .put("ct", Base64.encodeToString(ct, Base64.NO_WRAP))
-            .put("iv", Base64.encodeToString(iv, Base64.NO_WRAP))
-            .put("salt", saltB64)
-            .toString()
-        return Pair(json, saltB64)
-    }
-
-    /**
-     * Unwrap private key with PIN. Auto-detects format:
-     * - PWA JSON: {"ct":..., "iv":..., "salt":...}
-     * - Android compact: base64(salt||iv||ct)
-     */
     fun unwrapPrivateKey(wrapped: String, pin: String): PrivateKey {
-        val trimmed = wrapped.trim()
-        return if (trimmed.startsWith("{")) {
-            unwrapPrivateKeyJson(trimmed, pin)
-        } else {
-            unwrapPrivateKeyCompact(trimmed, pin)
-        }
-    }
-
-    private fun unwrapPrivateKeyCompact(wrapped: String, pin: String): PrivateKey {
         val bytes = Base64.decode(wrapped, Base64.NO_WRAP)
-        if (bytes.size < 28) throw IllegalArgumentException("wrapped key too short")
         val salt = bytes.sliceArray(0..15)
         val iv = bytes.sliceArray(16..27)
         val ct = bytes.sliceArray(28 until bytes.size)
-        val aesKey = pbkdf2Key(pin, salt)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
-        val pkcs8 = cipher.doFinal(ct)
-        return KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(pkcs8))
-    }
-
-    private fun unwrapPrivateKeyJson(json: String, pin: String): PrivateKey {
-        val obj = JSONObject(json)
-        val salt = Base64.decode(obj.getString("salt"), Base64.NO_WRAP)
-        val iv = Base64.decode(obj.getString("iv"), Base64.NO_WRAP)
-        val ct = Base64.decode(obj.getString("ct"), Base64.NO_WRAP)
         val aesKey = pbkdf2Key(pin, salt)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
