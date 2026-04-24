@@ -39,6 +39,9 @@ interface ContactDao {
 
     @Query("DELETE FROM contacts WHERE uin = :uin")
     suspend fun deleteByUin(uin: Long)
+
+    @Query("UPDATE contacts SET status = :status, lastSeen = :lastSeen WHERE uin = :uin")
+    suspend fun updateStatus(uin: Long, status: String, lastSeen: Long = System.currentTimeMillis())
 }
 
 @Dao

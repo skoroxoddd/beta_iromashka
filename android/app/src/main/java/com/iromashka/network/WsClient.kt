@@ -19,6 +19,7 @@ sealed class WsEvent {
     object Disconnected : WsEvent()
     data class MessageReceived(val envelope: WsEnvelope) : WsEvent()
     data class TypingReceived(val typing: com.iromashka.model.TypingEvent) : WsEvent()
+    data class UserStatusReceived(val uin: Long, val status: String) : WsEvent()
     data class Error(val msg: String) : WsEvent()
     object AuthFailed : WsEvent()
 }
@@ -266,6 +267,16 @@ class WsClient(
                     }
                     scope.launch { _events.emit(WsEvent.Connected) }
                     return
+                }
+                // UserStatus broadcast: {"type":"UserStatus","data":{"uin":...,"status":"Online"}}
+                if (obj.optString("type") == "UserStatus") {
+                    val data = obj.optJSONObject("data") ?: return@runCatching
+                    val u = data.optLong("uin", 0L)
+                    val st = data.optString("status", "Offline")
+                    if (u != 0L) {
+                        scope.launch { _events.emit(WsEvent.UserStatusReceived(u, st)) }
+                        return
+                    }
                 }
             }
 

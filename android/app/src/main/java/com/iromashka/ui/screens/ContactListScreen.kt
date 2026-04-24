@@ -1,6 +1,7 @@
 package com.iromashka.ui.screens
 
 import android.media.MediaPlayer
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,9 +20,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.*
+import com.iromashka.R
 import com.iromashka.storage.ContactEntity
 import com.iromashka.storage.Prefs
 import com.iromashka.ui.theme.LocalThemePalette
@@ -217,8 +220,17 @@ private fun ContactTab(
     if (contacts.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Список контактов пуст", color = palette.textSecondary, fontSize = 14.sp)
-                Spacer(Modifier.height(8.dp))
+                Image(
+                    painter = painterResource(id = R.drawable.logo),
+                    contentDescription = "iRomashka",
+                    modifier = Modifier.size(120.dp).clip(CircleShape)
+                )
+                Spacer(Modifier.height(16.dp))
+                Text("iRomashka", color = palette.accent,
+                    fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text("Список контактов пуст", color = palette.textSecondary, fontSize = 13.sp)
+                Spacer(Modifier.height(12.dp))
                 TextButton(onClick = onAddClick) {
                     Text("Добавить контакт", color = palette.accent)
                 }
@@ -307,27 +319,49 @@ private fun GroupItemRow(
 
 @Composable
 private fun ContactItem(contact: ContactEntity, palette: com.iromashka.ui.theme.ThemePalette, onClick: () -> Unit) {
+    val statusColor = when (contact.status) {
+        "Online" -> palette.onlineGreen
+        "Away"   -> androidx.compose.ui.graphics.Color(0xFFF59E0B)
+        else     -> palette.offlineGray
+    }
+    val statusLabel = when (contact.status) {
+        "Online"    -> "в сети"
+        "Away"      -> "отошёл"
+        else        -> "не в сети"
+    }
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.size(40.dp).clip(CircleShape)
-                .background(palette.accent),
+            modifier = Modifier.size(40.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                contact.nickname.take(1).uppercase(),
-                color = androidx.compose.ui.graphics.Color.White,
-                fontWeight = FontWeight.Bold, fontSize = 18.sp
+            Box(
+                modifier = Modifier.size(40.dp).clip(CircleShape)
+                    .background(palette.accent),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    contact.nickname.take(1).uppercase(),
+                    color = androidx.compose.ui.graphics.Color.White,
+                    fontWeight = FontWeight.Bold, fontSize = 18.sp
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(11.dp)
+                    .clip(CircleShape)
+                    .background(statusColor)
             )
         }
         Spacer(Modifier.width(12.dp))
-        Column {
+        Column(Modifier.weight(1f)) {
             Text(contact.nickname, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
                 color = palette.textPrimary)
-            Text("UIN: ${contact.uin}", fontSize = 11.sp, color = palette.textSecondary)
+            Text("UIN: ${contact.uin} · $statusLabel", fontSize = 11.sp, color = palette.textSecondary)
         }
     }
 }

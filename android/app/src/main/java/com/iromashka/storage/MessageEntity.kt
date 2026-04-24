@@ -23,5 +23,7 @@ data class MessageEntity(
 data class ContactEntity(
     @PrimaryKey val uin: Long,
     val nickname: String,
+    val status: String = "Offline",
+    val lastSeen: Long = 0,
     val addedAt: Long = System.currentTimeMillis()
 )

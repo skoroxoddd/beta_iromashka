@@ -244,6 +244,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                                 _typingUsers.value -= event.typing.sender_uin
                             }
                         }
+                        is WsEvent.UserStatusReceived -> {
+                            runCatching {
+                                contactDao.updateStatus(event.uin, event.status, System.currentTimeMillis())
+                            }
+                        }
                         is WsEvent.Error -> _wsConnected.value = false
                     }
                 }
