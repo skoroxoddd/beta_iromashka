@@ -35,12 +35,18 @@ class IromashkaForegroundService : Service() {
     private var myUin: Long = -1L
     private var token: String = ""
     private var reconnectCount = 0
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onBind(intent: Intent?) = null
 
     override fun onCreate() {
         super.onCreate()
         createChannels()
+        runCatching {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "iromashka:ws")
+                .apply { setReferenceCounted(false); acquire(8 * 60 * 60 * 1000L) }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -117,5 +123,6 @@ class IromashkaForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         ws?.close(1000, null)
+        runCatching { wakeLock?.release() }
     }
 }

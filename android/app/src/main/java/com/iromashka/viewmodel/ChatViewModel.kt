@@ -471,6 +471,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         wsClient?.sendTyping(toUin, isTyping)
     }
 
+    private val _myStatus = MutableStateFlow("Online")
+    val myStatus: StateFlow<String> = _myStatus
+
+    fun setMyStatus(status: String) {
+        _myStatus.value = status
+        wsClient?.sendStatus(status)
+    }
+
     // -- Phone discovery
 
     fun discoverContacts(phones: List<String>, onResult: (List<DiscoveredResult>) -> Unit) {

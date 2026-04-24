@@ -215,6 +215,14 @@ class WsClient(
         sendBinary(gson.toJson(payload).encodeToByteArray())
     }
 
+    fun sendStatus(status: String) {
+        val payload = mapOf(
+            "type" to "ChangeStatus",
+            "data" to mapOf("status" to status)
+        )
+        sendBinary(gson.toJson(payload).encodeToByteArray())
+    }
+
     private fun sendBinary(data: ByteArray) {
         val sk = sessionKey
         val frame = if (sk != null) {

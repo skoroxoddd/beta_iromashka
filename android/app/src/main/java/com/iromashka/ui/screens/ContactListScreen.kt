@@ -52,6 +52,7 @@ fun ContactListScreen(
     var showThemeDialog by remember { mutableStateOf(false) }
     var showDiscoverDialog by remember { mutableStateOf(false) }
     var showPinChange by remember { mutableStateOf(false) }
+    var showStatusDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var tabSelected by remember { mutableStateOf(0) } // 0=contacts, 1=groups
 
@@ -95,6 +96,11 @@ fun ContactListScreen(
                         color = palette.surface
                     ) {
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Изменить статус") },
+                            onClick = { menuExpanded = false; showStatusDialog = true },
+                            leadingIcon = { Icon(Icons.Default.Mood, null) }
+                        )
                         DropdownMenuItem(
                             text = { Text("Сменить тему") },
                             onClick = { menuExpanded = false; showThemeDialog = true },
@@ -182,6 +188,15 @@ fun ContactListScreen(
             viewModel = viewModel,
             onDismiss = { showPinChange = false },
             onSuccess = { showPinChange = false }
+        )
+    }
+
+    if (showStatusDialog) {
+        StatusPickerDialog(
+            current = viewModel.myStatus.collectAsState().value,
+            onSelected = { viewModel.setMyStatus(it) },
+            onDismiss = { showStatusDialog = false },
+            palette = palette
         )
     }
 
@@ -592,5 +607,65 @@ private fun PinChangeDialog(
             }) { Text("Сохранить") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+    )
+}
+
+@Composable
+private fun StatusPickerDialog(
+    current: String,
+    onSelected: (String) -> Unit,
+    onDismiss: () -> Unit,
+    palette: com.iromashka.ui.theme.ThemePalette
+) {
+    val statuses = listOf(
+        "Online"      to "В сети",
+        "Away"        to "Отошёл",
+        "Eating"      to "Ем",
+        "Working"     to "Работаю",
+        "Sleeping"    to "Сплю",
+        "OnRoad"      to "В дороге",
+        "Unavailable" to "Недоступен",
+        "Invisible"   to "Невидим"
+    )
+    val colors = mapOf(
+        "Online" to androidx.compose.ui.graphics.Color(0xFF0AC630),
+        "Away" to androidx.compose.ui.graphics.Color(0xFFF59E0B),
+        "Eating" to androidx.compose.ui.graphics.Color(0xFFFF7043),
+        "Working" to androidx.compose.ui.graphics.Color(0xFF7E57C2),
+        "Sleeping" to androidx.compose.ui.graphics.Color(0xFF5C6BC0),
+        "OnRoad" to androidx.compose.ui.graphics.Color(0xFF26A69A),
+        "Unavailable" to androidx.compose.ui.graphics.Color(0xFFEF5350),
+        "Invisible" to androidx.compose.ui.graphics.Color(0xFF90A4AE)
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = palette.surface,
+        title = { Text("Мой статус", color = palette.textPrimary) },
+        text = {
+            Column {
+                statuses.forEach { (key, label) ->
+                    val selected = key == current
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            onSelected(key); onDismiss()
+                        }.padding(vertical = 8.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier.size(12.dp).clip(CircleShape)
+                                .background(colors[key] ?: palette.offlineGray)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            label,
+                            color = palette.textPrimary,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } }
     )
 }

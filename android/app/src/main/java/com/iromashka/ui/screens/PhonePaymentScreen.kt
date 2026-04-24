@@ -41,9 +41,20 @@ fun PhonePaymentScreen(
     var phone by remember { mutableStateOf("") }
 
     LaunchedEffect(state) {
-        if (state is PaymentState.Paid) {
-            onPaid(phone.filter { it.isDigit() })
-            viewModel.resetPayment()
+        when (val s = state) {
+            is PaymentState.Created -> {
+                runCatching {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(s.confirmationUrl))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    ctx.startActivity(intent)
+                }
+                viewModel.pollPaymentStatus(s.phone)
+            }
+            is PaymentState.Paid -> {
+                onPaid(phone.filter { it.isDigit() })
+                viewModel.resetPayment()
+            }
+            else -> {}
         }
     }
 
@@ -109,14 +120,17 @@ fun PhonePaymentScreen(
                         is PaymentState.Created -> {
                             Button(
                                 onClick = {
-                                    ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(s.confirmationUrl)))
-                                    viewModel.pollPaymentStatus(s.phone)
+                                    runCatching {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(s.confirmationUrl))
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        ctx.startActivity(intent)
+                                    }
                                 },
                                 modifier = Modifier.fillMaxWidth().height(48.dp),
                                 shape = RoundedCornerShape(10.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = p.accent)
                             ) {
-                                Text("Открыть оплату ЮKassa", fontWeight = FontWeight.SemiBold, color = Color.White)
+                                Text("Открыть страницу оплаты", fontWeight = FontWeight.SemiBold, color = Color.White)
                             }
                             Spacer(Modifier.height(8.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -136,7 +150,7 @@ fun PhonePaymentScreen(
                                 if (state is PaymentState.Loading) {
                                     CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                                 } else {
-                                    Text("Оплатить 100 ₽", fontWeight = FontWeight.SemiBold, color = Color.White)
+                                    Text("Оплатить — 100 ₽", fontWeight = FontWeight.SemiBold, color = Color.White)
                                 }
                             }
                         }

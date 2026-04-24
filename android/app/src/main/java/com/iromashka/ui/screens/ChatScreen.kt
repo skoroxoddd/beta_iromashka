@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -142,6 +143,14 @@ fun ChatScreen(
         }
 
         // ── Input ───────────────────────────────────────
+        var showSmileyPicker by remember { mutableStateOf(false) }
+
+        if (showSmileyPicker) {
+            com.iromashka.ui.smileys.SmileyPickerPanel { shortcode ->
+                inputText = inputText + shortcode
+            }
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -149,6 +158,13 @@ fun ChatScreen(
                 .padding(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            IconButton(onClick = { showSmileyPicker = !showSmileyPicker }) {
+                Icon(
+                    Icons.Default.EmojiEmotions,
+                    contentDescription = "Смайлики",
+                    tint = if (showSmileyPicker) palette.accent else palette.textSecondary
+                )
+            }
             TextField(
                 value = inputText,
                 onValueChange = { inputText = it
@@ -210,8 +226,11 @@ private fun MessageBubble(
                 .background(if (isOutgoing) palette.bubbleOut else palette.bubbleIn)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            Text(msg.text, fontSize = 14.sp,
-                color = if (isOutgoing) androidx.compose.ui.graphics.Color.White else palette.textPrimary)
+            com.iromashka.ui.smileys.SmileyText(
+                text = msg.text,
+                color = if (isOutgoing) androidx.compose.ui.graphics.Color.White else palette.textPrimary,
+                fontSize = 14.sp
+            )
             Spacer(Modifier.height(4.dp))
             val timeStr = msg.formattedTime()
             Row(
