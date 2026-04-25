@@ -143,14 +143,14 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                         Prefs.updateWrappedPriv(ctx, newWrapped)
                         Prefs.updatePubKey(ctx, newPub)
                         runCatching {
-                            api.updatePubkey("Bearer ${}{resp.token}",
+                            api.updatePubkey("Bearer ${resp.token}",
                                 com.iromashka.network.UpdatePubkeyRequest(newPub))
                         }
                         runCatching {
-                            api.saveUserKey("Bearer ${}{resp.token}",
+                            api.saveUserKey("Bearer ${resp.token}",
                                 com.iromashka.network.SaveKeyRequest(encrypted_key = newWrapped, salt = ""))
                         }
-                        android.util.Log.w("AuthVM", "No usable server key for UIN ${}uin — generated fresh keypair")
+                        android.util.Log.w("AuthVM", "No usable server key for UIN $uin — generated fresh keypair")
                     }
                 }
 
