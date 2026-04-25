@@ -126,17 +126,24 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 // First-time login on this device (no local wrapped key)
                 if (wrappedPriv.isEmpty()) {
                     val serverKey = resp.encrypted_key
-                    val restored = if (!serverKey.isNullOrEmpty()) {
-                        // Try to unwrap whatever the server has (Android-compact OR PWA-json fallback)
-                        runCatching { CryptoManager.unwrapPrivateKey(serverKey, pin) }.isSuccess
-                    } else false
+                    var restoredKey: String? = null
+                    if (!serverKey.isNullOrEmpty()) {
+                        // Strict unwrap: server holds the canonical identity key
+                        val ok = runCatching { CryptoManager.unwrapPrivateKey(serverKey, pin) }.isSuccess
+                        if (ok) restoredKey = serverKey
+                        else android.util.Log.w("AuthVM", "Server has encrypted_key for UIN $uin but PIN does not unwrap it")
+                    }
 
-                    if (restored) {
-                        Prefs.updateWrappedPriv(ctx, serverKey!!)
-                        android.util.Log.i("AuthVM", "Restored wrapped private key from server")
-                    } else {
-                        // PWA-registered user OR incompatible server key — generate fresh keypair.
-                        // Tradeoff: previous E2E history is lost; PIN unlock and future messages work.
+                    if (restoredKey != null) {
+                        Prefs.updateWrappedPriv(ctx, restoredKey)
+                        // Re-derive our pubkey from server-stored identity, fetch via API
+                        runCatching {
+                            val pk = api.getPubKey(uin)
+                            if (pk.pubkey.isNotEmpty()) Prefs.updatePubKey(ctx, pk.pubkey)
+                        }
+                        android.util.Log.i("AuthVM", "Restored shared identity key from server for UIN $uin")
+                    } else if (serverKey.isNullOrEmpty()) {
+                        // Server has nothing at all — first device for this account, generate + push
                         val kp = CryptoManager.generateKeyPair()
                         val newWrapped = CryptoManager.wrapPrivateKey(kp.private, pin)
                         val newPub = CryptoManager.exportPublicKey(kp.public)
@@ -150,7 +157,11 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                             api.saveUserKey("Bearer ${resp.token}",
                                 com.iromashka.network.SaveKeyRequest(encrypted_key = newWrapped, salt = ""))
                         }
-                        android.util.Log.w("AuthVM", "No usable server key for UIN $uin — generated fresh keypair")
+                        android.util.Log.w("AuthVM", "No server key for UIN $uin — generated fresh keypair")
+                    } else {
+                        // Server has a key but PIN does not unwrap it → wrong PIN
+                        _state.value = AuthState.Error("Неверный PIN-код")
+                        return@launch
                     }
                 }
 

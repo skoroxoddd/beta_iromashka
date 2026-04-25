@@ -46,7 +46,22 @@ object CryptoManager {
     }
 
     fun unwrapPrivateKey(wrapped: String, pin: String): PrivateKey {
-        val bytes = Base64.decode(wrapped, Base64.NO_WRAP)
+        // Two formats are supported:
+        //   1. Compact: base64(salt(16) || iv(12) || ct)
+        //   2. PWA JSON: {"ct":"...","iv":"...","salt":"..."}
+        val trimmed = wrapped.trim()
+        if (trimmed.startsWith("{")) {
+            val obj = JSONObject(trimmed)
+            val salt = Base64.decode(obj.getString("salt"), Base64.NO_WRAP)
+            val iv = Base64.decode(obj.getString("iv"), Base64.NO_WRAP)
+            val ct = Base64.decode(obj.getString("ct"), Base64.NO_WRAP)
+            val aesKey = pbkdf2Key(pin, salt)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
+            val pkcs8 = cipher.doFinal(ct)
+            return KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(pkcs8))
+        }
+        val bytes = Base64.decode(trimmed, Base64.NO_WRAP)
         val salt = bytes.sliceArray(0..15)
         val iv = bytes.sliceArray(16..27)
         val ct = bytes.sliceArray(28 until bytes.size)
