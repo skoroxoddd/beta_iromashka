@@ -25,7 +25,8 @@ import com.iromashka.viewmodel.AuthViewModel
 fun LoginScreen(
     viewModel: AuthViewModel,
     onSuccess: (Long, String) -> Unit,
-    onRegister: () -> Unit
+    onRegister: () -> Unit,
+    onForgotPin: () -> Unit = {}
 ) {
     val p = LocalThemePalette.current
     val state by viewModel.state.collectAsState()
@@ -144,6 +145,9 @@ fun LoginScreen(
 
                     TextButton(onClick = onRegister, modifier = Modifier.fillMaxWidth()) {
                         Text("Зарегистрироваться", color = p.accent, fontSize = 14.sp)
+                    }
+                    TextButton(onClick = onForgotPin, modifier = Modifier.fillMaxWidth()) {
+                        Text("Забыл PIN — восстановить по фразе", color = p.accent, fontSize = 13.sp)
                     }
                 }
             }

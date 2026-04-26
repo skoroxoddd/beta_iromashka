@@ -40,6 +40,7 @@ fun ContactListScreen(
     onChatOpen: (Long, String) -> Unit,
     onGroupChatOpen: (Long, String) -> Unit,
     onDevices: () -> Unit = {},
+    onRecoveryGenerate: () -> Unit = {},
     onLogout: () -> Unit
 ) {
     val palette = LocalThemePalette.current
@@ -117,6 +118,11 @@ fun ContactListScreen(
                             text = { Text("Активные сессии") },
                             onClick = { menuExpanded = false; onDevices() },
                             leadingIcon = { Icon(Icons.Default.Devices, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Резервная фраза") },
+                            onClick = { menuExpanded = false; onRecoveryGenerate() },
+                            leadingIcon = { Icon(Icons.Default.Lock, null) }
                         )
                         DropdownMenuItem(
                             text = { Text("Сбросить identity") },

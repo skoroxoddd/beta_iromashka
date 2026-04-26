@@ -86,6 +86,18 @@ object ApiService {
             @Body body: UpdatePubkeyRequest
         ): okhttp3.ResponseBody
 
+        @POST("recovery/save")
+        suspend fun recoverySave(
+            @Header("Authorization") token: String,
+            @Body body: RecoverySaveRequest
+        ): okhttp3.ResponseBody
+
+        @POST("recovery/init")
+        suspend fun recoveryInit(@Body body: RecoveryInitRequest): RecoveryInitResponse
+
+        @POST("recovery/complete")
+        suspend fun recoveryComplete(@Body body: RecoveryCompleteRequest): LoginResponse
+
         @POST("payment/create")
         suspend fun createPayment(@Body body: PaymentCreateRequest): PaymentCreateResponse
 
@@ -146,3 +158,29 @@ data class RefreshRequest(val refresh_token: String)
 data class RefreshResponse(val token: String, val refresh_token: String)
 
 data class IdentityResetRequest(val uin: Long, val pin: String)
+
+data class RecoverySaveRequest(
+    val wrapped_with_seed: String,
+    val salt: String,
+    val phrase_fingerprint: String
+)
+
+data class RecoveryInitRequest(
+    val phone: String,
+    val phrase_fingerprint: String
+)
+
+data class RecoveryInitResponse(
+    val uin: Long,
+    val wrapped_with_seed: String,
+    val salt: String,
+    val recovery_token: String
+)
+
+data class RecoveryCompleteRequest(
+    val uin: Long,
+    val recovery_token: String,
+    val new_pin: String,
+    val new_encrypted_key: String,
+    val new_salt: String
+)

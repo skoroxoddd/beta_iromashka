@@ -108,8 +108,25 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                         popUpTo("login") { inclusive = true }
                     }
                 },
-                onRegister = { navController.navigate("phone_payment") }
+                onRegister = { navController.navigate("phone_payment") },
+                onForgotPin = { navController.navigate("recovery_restore") }
             )
+        }
+
+        composable("recovery_restore") {
+            RestoreFromMnemonicScreen(
+                onSuccess = {
+                    chatVm.connectWs()
+                    navController.navigate("contacts") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable("recovery_generate") {
+            GenerateMnemonicScreen(onBack = { navController.popBackStack() })
         }
 
         composable("phone_payment") {
@@ -193,6 +210,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                     navController.navigate("group_chat/$groupId/$groupName")
                 },
                 onDevices = { navController.navigate("devices") },
+                onRecoveryGenerate = { navController.navigate("recovery_generate") },
                 onLogout = {
                     chatVm.disconnectWs()
                     Prefs.clear(ctx)

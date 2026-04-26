@@ -77,6 +77,17 @@ object Prefs {
     fun getWrappedPriv(ctx: Context): String = securePrefs(ctx).getString("wrapped_priv", "") ?: ""
     fun getPubKey(ctx: Context): String = securePrefs(ctx).getString("pub_key", "") ?: ""
 
+    fun getPhone(ctx: Context): String = securePrefs(ctx).getString("phone", "") ?: ""
+    fun setPhone(ctx: Context, phone: String) {
+        securePrefs(ctx).edit().putString("phone", phone).apply()
+    }
+
+    fun hasRecoveryPhrase(ctx: Context): Boolean =
+        securePrefs(ctx).getBoolean("recovery_set", false)
+    fun markRecoveryPhrase(ctx: Context, set: Boolean) {
+        securePrefs(ctx).edit().putBoolean("recovery_set", set).apply()
+    }
+
     fun isLoggedIn(ctx: Context): Boolean = getUin(ctx) > 0 && getToken(ctx).isNotEmpty()
 
     fun clear(ctx: Context) {
