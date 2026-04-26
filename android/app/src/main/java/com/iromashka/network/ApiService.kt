@@ -49,6 +49,9 @@ object ApiService {
         @POST("devices/register")
         suspend fun registerDevice(@Header("Authorization") token: String, @Body body: RegisterDeviceRequest)
 
+        @retrofit2.http.DELETE("devices/{device_id}")
+        suspend fun deleteDevice(@Header("Authorization") token: String, @Path("device_id") deviceId: String): okhttp3.ResponseBody
+
         @GET("user/{uin}/devices")
         suspend fun getUserDevices(@Header("Authorization") token: String, @Path("uin") uin: Long): List<DeviceInfoResponse>
 

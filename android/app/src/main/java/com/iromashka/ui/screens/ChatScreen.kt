@@ -2,6 +2,8 @@ package com.iromashka.ui.screens
 
 import android.media.MediaPlayer
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,6 +32,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.content.ContextCompat
@@ -109,8 +112,10 @@ fun ChatScreen(
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
+            viewModel.markChatRead(toUin)
         }
     }
+    LaunchedEffect(toUin) { viewModel.markChatRead(toUin) }
 
     // Sound on incoming message
     var lastCount by remember { mutableStateOf(messages.size) }
@@ -182,7 +187,23 @@ fun ChatScreen(
         ) {
             items(messages, key = { it.messageId }) { msg ->
                 val isOutgoing = msg.status != null
-                MessageBubble(msg, isOutgoing, palette)
+                var showMenu by remember { mutableStateOf(false) }
+                var showEdit by remember { mutableStateOf(false) }
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    MessageBubble(msg, isOutgoing, palette,
+                        onLongPress = { if (isOutgoing) showMenu = true },
+                    )
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(text = { Text("Изменить") }, onClick = { showMenu = false; showEdit = true })
+                        DropdownMenuItem(text = { Text("Удалить у всех", color = androidx.compose.ui.graphics.Color.Red) },
+                            onClick = { showMenu = false; viewModel.deleteMessageForAll(toUin, msg.timestamp) })
+                    }
+                }
+                if (showEdit) {
+                    EditMessageDialog(initial = msg.text.removeSuffix("  · изм."),
+                        onDismiss = { showEdit = false },
+                        onSave = { newText -> showEdit = false; viewModel.editMessageForAll(toUin, msg.timestamp, newText) })
+                }
             }
         }
 
@@ -239,6 +260,25 @@ fun ChatScreen(
                     contentDescription = if (recording) "Стоп" else "Запись",
                     tint = if (recording) androidx.compose.ui.graphics.Color.Red else palette.textSecondary)
             }
+            var showTtlMenu by remember { mutableStateOf(false) }
+            val currentTtl = remember(toUin) { com.iromashka.storage.Prefs.getChatTtlSec(ctx, toUin) }
+            var ttlState by remember { mutableStateOf(currentTtl) }
+            Box {
+                IconButton(onClick = { showTtlMenu = true }) {
+                    Icon(Icons.Default.Schedule,
+                        contentDescription = "Самоудаление",
+                        tint = if (ttlState > 0) palette.accent else palette.textSecondary)
+                }
+                DropdownMenu(expanded = showTtlMenu, onDismissRequest = { showTtlMenu = false }) {
+                    listOf(0 to "Выкл", 30 to "30 сек", 300 to "5 мин", 3600 to "1 час", 86400 to "24 часа", 604800 to "7 дней").forEach { (sec, label) ->
+                        DropdownMenuItem(text = { Text(label) }, onClick = {
+                            com.iromashka.storage.Prefs.setChatTtlSec(ctx, toUin, sec)
+                            ttlState = sec
+                            showTtlMenu = false
+                        })
+                    }
+                }
+            }
             TextField(
                 value = inputText,
                 onValueChange = { inputText = it
@@ -282,11 +322,13 @@ fun ChatScreen(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
     msg: com.iromashka.viewmodel.ChatMessage,
     isOutgoing: Boolean,
-    palette: com.iromashka.ui.theme.ThemePalette
+    palette: com.iromashka.ui.theme.ThemePalette,
+    onLongPress: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -298,6 +340,7 @@ private fun MessageBubble(
                 .widthIn(max = 280.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(if (isOutgoing) palette.bubbleOut else palette.bubbleIn)
+                .combinedClickable(onClick = {}, onLongClick = onLongPress)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             if (MediaUtils.isMediaTag(msg.text)) {
@@ -363,4 +406,19 @@ private fun playSound(ctx: android.content.Context, type: String) {
             mp.start()
         }
     }
+}
+
+
+@Composable
+private fun EditMessageDialog(initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Изменить сообщение") },
+        text = {
+            OutlinedTextField(value = text, onValueChange = { text = it }, modifier = Modifier.fillMaxWidth(), maxLines = 5)
+        },
+        confirmButton = { TextButton(onClick = { if (text.isNotBlank()) onSave(text.trim()) }) { Text("Сохранить") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+    )
 }

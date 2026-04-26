@@ -18,6 +18,15 @@ interface MessageDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMessage(msg: MessageEntity): Long
 
+    @Query("UPDATE messages SET isRead = 1 WHERE chatUin = :chatUin AND isOutgoing = 1 AND timestamp <= :until")
+    suspend fun markReadUntil(chatUin: Long, until: Long)
+
+    @Query("UPDATE messages SET text = :text, isEdited = 1 WHERE timestamp = :ts AND senderUin = :senderUin AND receiverUin = :receiverUin")
+    suspend fun updateText(ts: Long, senderUin: Long, receiverUin: Long, text: String)
+
+    @Query("DELETE FROM messages WHERE timestamp = :ts AND senderUin = :senderUin AND receiverUin = :receiverUin")
+    suspend fun deleteByTs(ts: Long, senderUin: Long, receiverUin: Long)
+
     @Query("DELETE FROM messages WHERE chatUin = :chatUin")
     suspend fun deleteChat(chatUin: Long)
 

@@ -168,6 +168,10 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
             )
         }
 
+        composable("devices") {
+            DevicesScreen(onBack = { navController.popBackStack() })
+        }
+
         composable("contacts") {
             val uin = Prefs.getUin(ctx)
             val nickname = Prefs.getNickname(ctx)
@@ -188,6 +192,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                 onGroupChatOpen = { groupId, groupName ->
                     navController.navigate("group_chat/$groupId/$groupName")
                 },
+                onDevices = { navController.navigate("devices") },
                 onLogout = {
                     chatVm.disconnectWs()
                     Prefs.clear(ctx)

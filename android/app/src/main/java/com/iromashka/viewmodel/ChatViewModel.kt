@@ -15,6 +15,7 @@ import com.iromashka.network.ApiService
 import com.iromashka.network.WsClient
 import com.iromashka.network.WsEvent
 import com.iromashka.storage.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 
 enum class MessageStatus { Sent, Delivered, Read }
 
@@ -102,11 +103,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         messageId = e.id,
                         senderUin = e.senderUin,
                         receiverUin = e.receiverUin,
-                        text = e.text,
+                        text = if (e.isEdited) e.text + "  · изм." else e.text,
                         timestamp = e.timestamp,
                         isOutgoing = e.isOutgoing,
                         isE2E = e.isE2E,
-                        status = if (e.isOutgoing) MessageStatus.Sent else null
+                        status = when {
+                            !e.isOutgoing -> null
+                            e.isRead -> MessageStatus.Read
+                            else -> MessageStatus.Sent
+                        }
                     )
                 }
             }
@@ -199,7 +204,25 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             val ok = runCatching {
                 val resp = api.login(com.iromashka.model.LoginRequest(uin, pin))
                 val recovered = resp.encrypted_key
-                    ?: run { android.util.Log.e("ChatVM", "Server has no saved key for UIN $uin"); return@runCatching false }
+                    ?: run {
+                        // No PIN-wrapped key on server, no local copy — auto-reset identity and bootstrap fresh.
+                        android.util.Log.w("ChatVM", "Auto-reset: server has identity but no wrapped key for UIN $uin")
+                        runCatching { api.identityReset("Bearer ${resp.token}", com.iromashka.network.IdentityResetRequest(uin, pin)) }
+                        // Generate new keypair locally
+                        val kp = CryptoManager.generateKeyPair()
+                        val pubB64 = CryptoManager.exportPublicKey(kp.public)
+                        val wrapped = CryptoManager.wrapPrivateKey(kp.private, pin)
+                        Prefs.updateToken(ctx, resp.token)
+                        Prefs.updateRefreshToken(ctx, resp.refresh_token)
+                        Prefs.updateTokenTimestamp(ctx, System.currentTimeMillis())
+                        Prefs.updateWrappedPriv(ctx, wrapped)
+                        Prefs.updatePubKey(ctx, pubB64)
+                        // Push pubkey + save wrapped to server so next device can unwrap
+                        runCatching { api.updatePubkey("Bearer ${resp.token}", com.iromashka.network.UpdatePubkeyRequest(pubB64)) }
+                        runCatching { api.saveUserKey("Bearer ${resp.token}", com.iromashka.network.SaveKeyRequest(wrapped, "")) }
+                        myPrivKey = kp.private
+                        return@runCatching true
+                    }
 
                 Prefs.updateToken(ctx, resp.token)
                 Prefs.updateRefreshToken(ctx, resp.refresh_token)
@@ -244,6 +267,25 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             } else {
                                 _typingUsers.value -= event.typing.sender_uin
                             }
+                        }
+                        is WsEvent.ReadReceiptReceived -> {
+                            // event.receiverUin = author of the messages that got read
+                            // event.senderUin   = the reader (peer)
+                            val myUin = Prefs.getUin(ctx)
+                            if (event.receiverUin == myUin) {
+                                msgDao.markReadUntil(event.senderUin, event.readUntil)
+                            }
+                        }
+                        is WsEvent.MessageDeleted -> {
+                            msgDao.deleteByTs(event.timestamp, event.senderUin, event.receiverUin)
+                        }
+                        is WsEvent.MessageEdited -> {
+                            val privKey = myPrivKey
+                            val plain = if (privKey != null) {
+                                runCatching { CryptoManager.decryptMessage(event.ciphertext, privKey) }.getOrNull()
+                                    ?: "[не удалось расшифровать]"
+                            } else event.ciphertext
+                            msgDao.updateText(event.timestamp, event.senderUin, event.receiverUin, plain)
                         }
                         is WsEvent.PubkeyChanged -> {
                             // Server says someone reset their identity — drop cached pubkey so next send refetches.
@@ -389,27 +431,58 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val myUin = Prefs.getUin(ctx)
         val privKey = myPrivKey ?: return
 
-        val plaintext = runCatching {
+        val raw = runCatching {
             CryptoManager.decryptMessage(env.ciphertext, privKey)
         }.getOrElse { "[не удалось расшифровать]" } ?: "[не удалось расшифровать]"
 
-        val chatUin = if (env.sender_uin == myUin) env.receiver_uin else env.sender_uin
+        // Unwrap D5 envelope: {"t":"...","_ttl":N,...}
+        var displayText = raw
+        var ttlSec = 0
+        runCatching {
+            if (raw.startsWith("{")) {
+                val obj = org.json.JSONObject(raw)
+                if (obj.has("t")) {
+                    displayText = obj.optString("t", raw)
+                    ttlSec = obj.optInt("_ttl", 0)
+                }
+            }
+        }
 
+        val chatUin = if (env.sender_uin == myUin) env.receiver_uin else env.sender_uin
+        val nowMs = System.currentTimeMillis()
         msgDao.insertMessage(MessageEntity(
             chatUin = chatUin,
             senderUin = env.sender_uin,
             receiverUin = env.receiver_uin,
-            text = plaintext,
-            timestamp = System.currentTimeMillis(),
+            text = displayText,
+            timestamp = nowMs,
             isOutgoing = false,
             isE2E = true
         ))
+        if (ttlSec > 0) scheduleTtlDelete(chatUin, nowMs, ttlSec)
+    }
+
+    private fun scheduleTtlDelete(chatUin: Long, ts: Long, ttlSec: Int) {
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(ttlSec * 1000L)
+            msgDao.deleteByTs(ts, chatUin, Prefs.getUin(ctx))
+            msgDao.deleteByTs(ts, Prefs.getUin(ctx), chatUin)
+        }
     }
 
     fun sendMessage(toUin: Long, text: String) {
         val myUin = Prefs.getUin(ctx)
         @Suppress("UNUSED_VARIABLE") val privKey = myPrivKey ?: return
         val token = Prefs.getToken(ctx)
+
+        // Wrap into D5 reply/ttl envelope if chat has TTL set
+        val ttlSec = Prefs.getChatTtlSec(ctx, toUin)
+        val payloadText = if (ttlSec > 0) {
+            val obj = org.json.JSONObject()
+            obj.put("t", text)
+            obj.put("_ttl", ttlSec)
+            obj.toString()
+        } else text
 
         viewModelScope.launch {
             runCatching {
@@ -424,14 +497,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     val deviceInfos = devices.map {
                         com.iromashka.crypto.CryptoManager.DeviceInfo(it.device_id, it.pubkey)
                     }
-                    payloads = CryptoManager.encryptForDevices(text, deviceInfos)
-                    ciphertext = payloads.firstOrNull()?.ciphertext ?: text
+                    payloads = CryptoManager.encryptForDevices(payloadText, deviceInfos)
+                    ciphertext = payloads.firstOrNull()?.ciphertext ?: payloadText
                 } else {
                     payloads = null
                     val cached = pubkeyCache[toUin]
                     val pubKeyB64 = cached ?: api.getPubKey(toUin).pubkey.also { pubkeyCache[toUin] = it }
                     val recipPub = CryptoManager.importPublicKey(pubKeyB64)
-                    ciphertext = CryptoManager.encryptMessage(text, recipPub)
+                    ciphertext = CryptoManager.encryptMessage(payloadText, recipPub)
                 }
 
                 if (payloads != null) {
@@ -445,15 +518,17 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     ))
                 }
 
+                val nowMs = System.currentTimeMillis()
                 msgDao.insertMessage(MessageEntity(
                     chatUin = toUin,
                     senderUin = myUin,
                     receiverUin = toUin,
                     text = text,
-                    timestamp = System.currentTimeMillis(),
+                    timestamp = nowMs,
                     isOutgoing = true,
                     isE2E = true
                 ))
+                if (ttlSec > 0) scheduleTtlDelete(toUin, nowMs, ttlSec)
                 // Save to server for history persistence
                 val token = Prefs.getToken(ctx)
                 if (token.isNotEmpty()) {
@@ -497,6 +572,50 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 onResult(false, msg)
             }
+        }
+    }
+
+    fun markChatRead(chatUin: Long) {
+        val myUin = Prefs.getUin(ctx)
+        if (chatUin <= 0 || myUin <= 0) return
+        val now = System.currentTimeMillis()
+        wsClient?.sendReadReceipt(senderUin = chatUin, readerUin = myUin, readUntil = now)
+    }
+
+    fun deleteMessageForAll(receiverUin: Long, timestamp: Long) {
+        val token = Prefs.getToken(ctx); if (token.isEmpty()) return
+        viewModelScope.launch {
+            runCatching {
+                val resp = okhttp3.OkHttpClient().newCall(
+                    okhttp3.Request.Builder()
+                        .url("https://iromashka.ru/api/messages/delete")
+                        .post(okhttp3.RequestBody.create("application/json; charset=utf-8".toMediaTypeOrNull(),
+                            com.google.gson.Gson().toJson(mapOf("receiver_uin" to receiverUin, "timestamp" to timestamp))))
+                        .header("Authorization", "Bearer $token")
+                        .build()
+                ).execute()
+                resp.close()
+            }.onFailure { android.util.Log.e("ChatVM", "delete: ${it.message}") }
+        }
+    }
+
+    fun editMessageForAll(receiverUin: Long, timestamp: Long, newText: String) {
+        val token = Prefs.getToken(ctx); if (token.isEmpty()) return
+        viewModelScope.launch {
+            runCatching {
+                val cached = pubkeyCache[receiverUin]
+                val pub = CryptoManager.importPublicKey(cached ?: api.getPubKey(receiverUin).pubkey.also { pubkeyCache[receiverUin] = it })
+                val ct = CryptoManager.encryptMessage(newText, pub)
+                val resp = okhttp3.OkHttpClient().newCall(
+                    okhttp3.Request.Builder()
+                        .url("https://iromashka.ru/api/messages/edit")
+                        .post(okhttp3.RequestBody.create("application/json; charset=utf-8".toMediaTypeOrNull(),
+                            com.google.gson.Gson().toJson(mapOf("receiver_uin" to receiverUin, "timestamp" to timestamp, "ciphertext" to ct))))
+                        .header("Authorization", "Bearer $token")
+                        .build()
+                ).execute()
+                resp.close()
+            }.onFailure { android.util.Log.e("ChatVM", "edit: ${it.message}") }
         }
     }
 

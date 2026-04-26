@@ -144,4 +144,11 @@ object Prefs {
 
     /** Max failures before wiping keys */
     const val MAX_PIN_FAILURES = 50
+
+    // ── Per-chat TTL (disappearing messages) ──────────────────────────────
+    fun getChatTtlSec(ctx: Context, peerUin: Long): Int =
+        simplePrefs(ctx).getInt("ttl_$peerUin", 0)
+    fun setChatTtlSec(ctx: Context, peerUin: Long, ttlSec: Int) {
+        simplePrefs(ctx).edit().putInt("ttl_$peerUin", ttlSec).apply()
+    }
 }

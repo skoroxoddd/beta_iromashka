@@ -21,6 +21,9 @@ sealed class WsEvent {
     data class TypingReceived(val typing: com.iromashka.model.TypingEvent) : WsEvent()
     data class UserStatusReceived(val uin: Long, val status: String) : WsEvent()
     data class PubkeyChanged(val uin: Long) : WsEvent()
+    data class ReadReceiptReceived(val senderUin: Long, val receiverUin: Long, val readUntil: Long) : WsEvent()
+    data class MessageDeleted(val senderUin: Long, val receiverUin: Long, val timestamp: Long) : WsEvent()
+    data class MessageEdited(val senderUin: Long, val receiverUin: Long, val timestamp: Long, val ciphertext: String) : WsEvent()
     data class Error(val msg: String) : WsEvent()
     object AuthFailed : WsEvent()
 }
@@ -216,6 +219,19 @@ class WsClient(
         sendBinary(gson.toJson(payload).encodeToByteArray())
     }
 
+    fun sendReadReceipt(senderUin: Long, readerUin: Long, readUntil: Long) {
+        // Server expects ClientPacket variant ReadReceipt — the wrapper is `{type:"ReadReceipt", data:{...}}`.
+        val payload = mapOf(
+            "type" to "ReadReceipt",
+            "data" to mapOf(
+                "sender_uin" to readerUin,        // who is reading
+                "receiver_uin" to senderUin,      // whose msgs were read
+                "read_until" to readUntil
+            )
+        )
+        sendBinary(gson.toJson(payload).encodeToByteArray())
+    }
+
     fun sendStatus(status: String) {
         val payload = mapOf(
             "type" to "ChangeStatus",
@@ -278,7 +294,23 @@ class WsClient(
                     return
                 }
                 // UserStatus broadcast: {"type":"UserStatus","data":{"uin":...,"status":"Online"}}
-                if (obj.optString("sys") == "pubkey_changed") {
+                if (obj.optString("sys") == "message_deleted") {
+                    val su = obj.optLong("sender_uin", 0L); val ru = obj.optLong("receiver_uin", 0L); val ts = obj.optLong("timestamp", 0L)
+                    if (ts != 0L) scope.launch { _events.emit(WsEvent.MessageDeleted(su, ru, ts)) }
+                    return
+                }
+                if (obj.optString("sys") == "message_edited") {
+                    val su = obj.optLong("sender_uin", 0L); val ru = obj.optLong("receiver_uin", 0L); val ts = obj.optLong("timestamp", 0L); val ct = obj.optString("ciphertext", "")
+                    if (ts != 0L) scope.launch { _events.emit(WsEvent.MessageEdited(su, ru, ts, ct)) }
+                    return
+                }
+                // ReadReceipt frames are JSON `{sender_uin,receiver_uin,read_until}` — no `type`/`sys`.
+                if (obj.has("read_until") && obj.has("sender_uin") && obj.has("receiver_uin") && !obj.has("ciphertext")) {
+                    val su = obj.optLong("sender_uin", 0L); val ru = obj.optLong("receiver_uin", 0L); val until = obj.optLong("read_until", 0L)
+                    scope.launch { _events.emit(WsEvent.ReadReceiptReceived(su, ru, until)) }
+                    return
+                }
+                                if (obj.optString("sys") == "pubkey_changed") {
                     val u = obj.optLong("uin", 0L)
                     if (u != 0L) {
                         scope.launch { _events.emit(WsEvent.PubkeyChanged(u)) }
