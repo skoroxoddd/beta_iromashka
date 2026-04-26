@@ -20,6 +20,7 @@ sealed class WsEvent {
     data class MessageReceived(val envelope: WsEnvelope) : WsEvent()
     data class TypingReceived(val typing: com.iromashka.model.TypingEvent) : WsEvent()
     data class UserStatusReceived(val uin: Long, val status: String) : WsEvent()
+    data class PubkeyChanged(val uin: Long) : WsEvent()
     data class Error(val msg: String) : WsEvent()
     object AuthFailed : WsEvent()
 }
@@ -64,7 +65,7 @@ private object Transport {
         if (data.size < 8) return null
         val xorKey = data[3].toInt() and 0xFF
         val len = ByteBuffer.wrap(data, 4, 4).order(ByteOrder.LITTLE_ENDIAN).int
-        if (len < 0 || len > 65536 || data.size < 8 + len) return null
+        if (len < 0 || len > 2 * 1024 * 1024 || data.size < 8 + len) return null
         val payload = data.sliceArray(8 until 8 + len)
         return ByteArray(len) { i -> (payload[i].toInt() xor ((xorKey + i) and 0xFF)).toByte() }
     }
@@ -73,7 +74,7 @@ private object Transport {
         // [0x49 0x52][0x01][4B len LE][payload][padding]
         if (data.size < 7) return null
         val len = ByteBuffer.wrap(data, 3, 4).order(ByteOrder.LITTLE_ENDIAN).int
-        if (len < 0 || len > 65536 || data.size < 7 + len) return null
+        if (len < 0 || len > 2 * 1024 * 1024 || data.size < 7 + len) return null
         return data.sliceArray(7 until 7 + len)
     }
 
@@ -277,7 +278,14 @@ class WsClient(
                     return
                 }
                 // UserStatus broadcast: {"type":"UserStatus","data":{"uin":...,"status":"Online"}}
-                if (obj.optString("type") == "UserStatus") {
+                if (obj.optString("sys") == "pubkey_changed") {
+                    val u = obj.optLong("uin", 0L)
+                    if (u != 0L) {
+                        scope.launch { _events.emit(WsEvent.PubkeyChanged(u)) }
+                    }
+                    return
+                }
+                                if (obj.optString("type") == "UserStatus") {
                     val data = obj.optJSONObject("data") ?: return@runCatching
                     val u = data.optLong("uin", 0L)
                     val st = data.optString("status", "Offline")

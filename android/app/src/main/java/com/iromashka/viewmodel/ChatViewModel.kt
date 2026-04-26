@@ -46,6 +46,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private var wsClient: WsClient? = null
     private var myPrivKey: java.security.PrivateKey? = null
+    private val pubkeyCache = java.util.concurrent.ConcurrentHashMap<Long, String>()
 
     private val _wsConnected = MutableStateFlow(false)
     val wsConnected: StateFlow<Boolean> = _wsConnected
@@ -244,6 +245,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                                 _typingUsers.value -= event.typing.sender_uin
                             }
                         }
+                        is WsEvent.PubkeyChanged -> {
+                            // Server says someone reset their identity — drop cached pubkey so next send refetches.
+                            pubkeyCache.remove(event.uin)
+                            android.util.Log.i("ChatVM", "pubkey_changed → invalidated cache for ${event.uin}")
+                        }
                         is WsEvent.UserStatusReceived -> {
                             runCatching {
                                 contactDao.updateStatus(event.uin, event.status, System.currentTimeMillis())
@@ -422,8 +428,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     ciphertext = payloads.firstOrNull()?.ciphertext ?: text
                 } else {
                     payloads = null
-                    val pubKeyResp = api.getPubKey(toUin)
-                    val recipPub = CryptoManager.importPublicKey(pubKeyResp.pubkey)
+                    val cached = pubkeyCache[toUin]
+                    val pubKeyB64 = cached ?: api.getPubKey(toUin).pubkey.also { pubkeyCache[toUin] = it }
+                    val recipPub = CryptoManager.importPublicKey(pubKeyB64)
                     ciphertext = CryptoManager.encryptMessage(text, recipPub)
                 }
 
@@ -463,6 +470,32 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 android.util.Log.e("ChatVM", "SendMessage failed: ${err.message}")
                 _wsConnected.value = false
                 _e2eError.value = "Ошибка отправки: ${err.message}"
+            }
+        }
+    }
+
+    fun resetIdentity(pin: String, onResult: (Boolean, String?) -> Unit) {
+        val token = Prefs.getToken(ctx)
+        val myUin = Prefs.getUin(ctx)
+        if (token.isEmpty() || myUin <= 0) { onResult(false, "Не авторизован"); return }
+        viewModelScope.launch {
+            runCatching {
+                api.identityReset("Bearer $token", com.iromashka.network.IdentityResetRequest(myUin, pin))
+            }.onSuccess {
+                // Wipe local identity so next login bootstraps fresh
+                Prefs.updateWrappedPriv(ctx, "")
+                Prefs.updatePubKey(ctx, "")
+                myPrivKey = null
+                pubkeyCache.clear()
+                disconnectWs()
+                onResult(true, null)
+            }.onFailure { e ->
+                val msg = when {
+                    e.message?.contains("401") == true -> "Неверный PIN"
+                    e.message?.contains("403") == true -> "Доступ запрещён"
+                    else -> "Ошибка: ${e.message}"
+                }
+                onResult(false, msg)
             }
         }
     }

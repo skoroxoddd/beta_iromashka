@@ -26,6 +26,15 @@ import com.iromashka.ui.theme.LocalThemePalette
 import com.iromashka.ui.theme.ThemePalette
 import com.iromashka.viewmodel.ChatViewModel
 import com.iromashka.viewmodel.MessageStatus
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.runtime.LaunchedEffect
+import androidx.core.content.ContextCompat
+import com.iromashka.media.MediaUtils
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +54,56 @@ fun ChatScreen(
     var inputText by remember { mutableStateOf("") }
     var isUserTyping by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+
+    // Media state
+    var recording by remember { mutableStateOf(false) }
+    var recorder by remember { mutableStateOf<android.media.MediaRecorder?>(null) }
+    var recFile by remember { mutableStateOf<File?>(null) }
+
+    fun startAudioRec() {
+        runCatching {
+            val dir = File(ctx.cacheDir, "rec").apply { mkdirs() }
+            val f = File(dir, "r_${System.currentTimeMillis()}.mp4")
+            val r = MediaUtils.newRecorder(ctx).apply {
+                setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+                setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+                setOutputFile(f.absolutePath)
+                prepare()
+                start()
+            }
+            recorder = r
+            recFile = f
+            recording = true
+        }.onFailure {
+            android.util.Log.e("ChatScreen", "rec start ${it.message}")
+        }
+    }
+
+    fun stopAndSendAudio() {
+        runCatching {
+            recorder?.stop(); recorder?.release(); recorder = null
+            recording = false
+            val f = recFile ?: return
+            val tag = MediaUtils.audioFileToHtmlTag(f) ?: return
+            viewModel.sendMessage(toUin, tag)
+            playSound(ctx, "outgoing")
+        }.onFailure { android.util.Log.e("ChatScreen", "rec stop ${it.message}") }
+    }
+
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startAudioRec()
+    }
+
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            val tag = MediaUtils.imageUriToHtmlTag(ctx, uri)
+            if (tag != null) {
+                viewModel.sendMessage(toUin, tag)
+                playSound(ctx, "outgoing")
+            }
+        }
+    }
 
     // Auto-scroll on new messages
     LaunchedEffect(messages.size) {
@@ -165,6 +224,21 @@ fun ChatScreen(
                     tint = if (showSmileyPicker) palette.accent else palette.textSecondary
                 )
             }
+            IconButton(onClick = { pickImage.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                Icon(Icons.Default.Image, contentDescription = "Картинка", tint = palette.textSecondary)
+            }
+            IconButton(onClick = {
+                val perm = android.Manifest.permission.RECORD_AUDIO
+                if (ContextCompat.checkSelfPermission(ctx, perm) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    micPermission.launch(perm)
+                } else {
+                    if (recording) stopAndSendAudio() else startAudioRec()
+                }
+            }) {
+                Icon(if (recording) Icons.Default.Stop else Icons.Default.Mic,
+                    contentDescription = if (recording) "Стоп" else "Запись",
+                    tint = if (recording) androidx.compose.ui.graphics.Color.Red else palette.textSecondary)
+            }
             TextField(
                 value = inputText,
                 onValueChange = { inputText = it
@@ -226,11 +300,21 @@ private fun MessageBubble(
                 .background(if (isOutgoing) palette.bubbleOut else palette.bubbleIn)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            com.iromashka.ui.smileys.SmileyText(
-                text = msg.text,
-                color = if (isOutgoing) androidx.compose.ui.graphics.Color.White else palette.textPrimary,
-                fontSize = 14.sp
-            )
+            if (MediaUtils.isMediaTag(msg.text)) {
+                MediaBubble(tag = msg.text) { fallback ->
+                    com.iromashka.ui.smileys.SmileyText(
+                        text = fallback,
+                        color = if (isOutgoing) androidx.compose.ui.graphics.Color.White else palette.textPrimary,
+                        fontSize = 14.sp
+                    )
+                }
+            } else {
+                com.iromashka.ui.smileys.SmileyText(
+                    text = msg.text,
+                    color = if (isOutgoing) androidx.compose.ui.graphics.Color.White else palette.textPrimary,
+                    fontSize = 14.sp
+                )
+            }
             Spacer(Modifier.height(4.dp))
             val timeStr = msg.formattedTime()
             Row(

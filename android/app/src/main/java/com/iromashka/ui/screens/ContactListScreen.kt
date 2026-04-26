@@ -52,6 +52,7 @@ fun ContactListScreen(
     var showThemeDialog by remember { mutableStateOf(false) }
     var showDiscoverDialog by remember { mutableStateOf(false) }
     var showPinChange by remember { mutableStateOf(false) }
+    var showResetIdentity by remember { mutableStateOf(false) }
     var showStatusDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var tabSelected by remember { mutableStateOf(0) } // 0=contacts, 1=groups
@@ -110,6 +111,11 @@ fun ContactListScreen(
                             text = { Text("Сменить PIN") },
                             onClick = { menuExpanded = false; showPinChange = true },
                             leadingIcon = { Icon(Icons.Default.Lock, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Сбросить identity") },
+                            onClick = { menuExpanded = false; showResetIdentity = true },
+                            leadingIcon = { Icon(Icons.Default.Refresh, null) }
                         )
                         DropdownMenuItem(
                             text = { Text("Выйти") },
@@ -183,7 +189,15 @@ fun ContactListScreen(
         )
     }
 
-    if (showPinChange) {
+    if (showResetIdentity) {
+        ResetIdentityDialog(
+            viewModel = viewModel,
+            onDismiss = { showResetIdentity = false },
+            onSuccess = { showResetIdentity = false; onLogout() }
+        )
+    }
+
+        if (showPinChange) {
         PinChangeDialog(
             viewModel = viewModel,
             onDismiss = { showPinChange = false },
@@ -667,5 +681,61 @@ private fun StatusPickerDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } }
+    )
+}
+
+
+@Composable
+private fun ResetIdentityDialog(
+    viewModel: com.iromashka.viewmodel.ChatViewModel,
+    onDismiss: () -> Unit,
+    onSuccess: () -> Unit
+) {
+    var pin by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var confirmed by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Сбросить identity") },
+        text = {
+            Column {
+                if (!confirmed) {
+                    Text("После сброса:\n• Старая история станет нерасшифровываемой\n• Все собеседники получат новый ключ\n• Нужно будет ввести PIN при следующем входе\n\nПродолжить?")
+                } else {
+                    Text("Введите текущий PIN для подтверждения:")
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = pin,
+                        onValueChange = { pin = it.filter { c -> c.isDigit() }.take(8) },
+                        label = { Text("PIN") },
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (error != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(error!!, color = androidx.compose.ui.graphics.Color.Red, fontSize = 12.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !loading && (!confirmed || pin.length >= 4),
+                onClick = {
+                    if (!confirmed) { confirmed = true; return@TextButton }
+                    loading = true
+                    error = null
+                    viewModel.resetIdentity(pin) { ok, err ->
+                        loading = false
+                        if (ok) onSuccess()
+                        else error = err ?: "Не удалось сбросить"
+                    }
+                }
+            ) { Text(if (!confirmed) "Дальше" else if (loading) "..." else "Сбросить", color = androidx.compose.ui.graphics.Color.Red) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
     )
 }
