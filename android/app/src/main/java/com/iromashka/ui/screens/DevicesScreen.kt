@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.iromashka.network.ApiService
 import com.iromashka.network.DeviceInfoResponse
 import com.iromashka.storage.Prefs
-import retrofit2.HttpException
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,8 +27,9 @@ fun DevicesScreen(onBack: () -> Unit) {
     val myUin = Prefs.getUin(ctx)
     val token = Prefs.getToken(ctx)
     val myDevId = Prefs.getDeviceId(ctx)
+    val scope = rememberCoroutineScope()
 
-    suspend fun reload() {
+    suspend fun doReload() {
         loading = true; error = null
         runCatching {
             ApiService.api.getUserDevices("Bearer $token", myUin)
@@ -37,7 +38,7 @@ fun DevicesScreen(onBack: () -> Unit) {
         loading = false
     }
 
-    LaunchedEffect(Unit) { reload() }
+    LaunchedEffect(Unit) { doReload() }
 
     Scaffold(
         topBar = {
@@ -73,11 +74,11 @@ fun DevicesScreen(onBack: () -> Unit) {
                                     var revoking by remember { mutableStateOf(false) }
                                     IconButton(onClick = {
                                         revoking = true
-                                        kotlinx.coroutines.GlobalScope.launch {
+                                        scope.launch {
                                             runCatching {
                                                 ApiService.api.deleteDevice("Bearer $token", d.device_id)
                                             }
-                                            reload()
+                                            doReload()
                                             revoking = false
                                         }
                                     }, enabled = !revoking) {
