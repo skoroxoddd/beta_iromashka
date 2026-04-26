@@ -2,6 +2,7 @@ package com.iromashka.network
 
 import android.util.Log
 import com.google.gson.Gson
+import com.iromashka.BuildConfig
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import okhttp3.*
@@ -151,6 +152,7 @@ class WsClient(
     private var reconnectJob: Job? = null
     private var retryCount = 0
     private val maxRetries = 10
+    @Volatile private var stopped = false
 
     // Session key received in auth_ok (hex-decoded)
     @Volatile private var sessionKey: ByteArray? = null
@@ -161,6 +163,7 @@ class WsClient(
         .build()
 
     fun connect() {
+        stopped = false
         sessionKey = null
         val request = Request.Builder()
             .url(ApiService.WS_URL)
@@ -170,6 +173,7 @@ class WsClient(
     }
 
     fun disconnect() {
+        stopped = true
         reconnectJob?.cancel()
         ws?.close(1000, "logout")
         ws = null
@@ -279,7 +283,7 @@ class WsClient(
         }
 
         private fun handleText(text: String) {
-            Log.d(TAG, "WS msg (${text.length}c): ${text.take(120)}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "WS msg ${text.length}c")
 
             // 1. auth_ok — extract session key
             runCatching {
@@ -288,7 +292,7 @@ class WsClient(
                     val skHex = obj.optString("sk")
                     if (skHex.isNotEmpty()) {
                         sessionKey = Transport.hexToBytes(skHex)
-                        Log.i(TAG, "auth_ok received, session key set (${skHex.length / 2} bytes)")
+                        Log.i(TAG, "auth_ok received, session key set")
                     }
                     scope.launch { _events.emit(WsEvent.Connected) }
                     return
@@ -374,6 +378,7 @@ class WsClient(
     }
 
     private fun scheduleReconnect() {
+        if (stopped) return
         if (retryCount >= maxRetries) {
             Log.w(TAG, "Max retries reached")
             return
@@ -383,6 +388,7 @@ class WsClient(
             val delay = minOf(1000L * (1L shl retryCount), 30_000L)
             Log.d(TAG, "Reconnect in ${delay}ms (attempt ${retryCount + 1})")
             delay(delay)
+            if (stopped) return@launch
             retryCount++
             connect()
         }
