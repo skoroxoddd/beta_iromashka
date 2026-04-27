@@ -12,8 +12,8 @@ android {
         applicationId = "com.iromashka"
         minSdk = 26
         targetSdk = 34
-        versionCode = 16
-        versionName = "1.4.3"
+        versionCode = 17
+        versionName = "1.4.4"
     }
 
     signingConfigs {
@@ -34,8 +34,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }
