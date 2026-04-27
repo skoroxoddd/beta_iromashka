@@ -34,7 +34,10 @@ fun MediaBubble(tag: String, onTextFallback: @Composable (String) -> Unit) {
         mime.startsWith("image/") -> {
             val request = ImageRequest.Builder(ctx)
                 .data(src)
+                .size(720)
                 .crossfade(true)
+                .memoryCacheKey(src.hashCode().toString())
+                .diskCacheKey(src.hashCode().toString())
                 .build()
             AsyncImage(
                 model = request,
