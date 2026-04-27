@@ -2,6 +2,7 @@ package com.iromashka.network
 
 import android.util.Log
 import com.google.gson.Gson
+import com.iromashka.BuildConfig
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import okhttp3.*
@@ -20,6 +21,10 @@ sealed class WsEvent {
     data class MessageReceived(val envelope: WsEnvelope) : WsEvent()
     data class TypingReceived(val typing: com.iromashka.model.TypingEvent) : WsEvent()
     data class UserStatusReceived(val uin: Long, val status: String) : WsEvent()
+    data class PubkeyChanged(val uin: Long) : WsEvent()
+    data class ReadReceiptReceived(val senderUin: Long, val receiverUin: Long, val readUntil: Long) : WsEvent()
+    data class MessageDeleted(val senderUin: Long, val receiverUin: Long, val timestamp: Long) : WsEvent()
+    data class MessageEdited(val senderUin: Long, val receiverUin: Long, val timestamp: Long, val ciphertext: String) : WsEvent()
     data class Error(val msg: String) : WsEvent()
     object AuthFailed : WsEvent()
 }
@@ -64,7 +69,7 @@ private object Transport {
         if (data.size < 8) return null
         val xorKey = data[3].toInt() and 0xFF
         val len = ByteBuffer.wrap(data, 4, 4).order(ByteOrder.LITTLE_ENDIAN).int
-        if (len < 0 || len > 65536 || data.size < 8 + len) return null
+        if (len < 0 || len > 2 * 1024 * 1024 || data.size < 8 + len) return null
         val payload = data.sliceArray(8 until 8 + len)
         return ByteArray(len) { i -> (payload[i].toInt() xor ((xorKey + i) and 0xFF)).toByte() }
     }
@@ -73,7 +78,7 @@ private object Transport {
         // [0x49 0x52][0x01][4B len LE][payload][padding]
         if (data.size < 7) return null
         val len = ByteBuffer.wrap(data, 3, 4).order(ByteOrder.LITTLE_ENDIAN).int
-        if (len < 0 || len > 65536 || data.size < 7 + len) return null
+        if (len < 0 || len > 2 * 1024 * 1024 || data.size < 7 + len) return null
         return data.sliceArray(7 until 7 + len)
     }
 
@@ -147,6 +152,7 @@ class WsClient(
     private var reconnectJob: Job? = null
     private var retryCount = 0
     private val maxRetries = 10
+    @Volatile private var stopped = false
 
     // Session key received in auth_ok (hex-decoded)
     @Volatile private var sessionKey: ByteArray? = null
@@ -157,6 +163,7 @@ class WsClient(
         .build()
 
     fun connect() {
+        stopped = false
         sessionKey = null
         val request = Request.Builder()
             .url(ApiService.WS_URL)
@@ -166,6 +173,7 @@ class WsClient(
     }
 
     fun disconnect() {
+        stopped = true
         reconnectJob?.cancel()
         ws?.close(1000, "logout")
         ws = null
@@ -210,6 +218,19 @@ class WsClient(
                 "sender_uin" to uin,
                 "receiver_uin" to toUin,
                 "is_typing" to isTyping
+            )
+        )
+        sendBinary(gson.toJson(payload).encodeToByteArray())
+    }
+
+    fun sendReadReceipt(senderUin: Long, readerUin: Long, readUntil: Long) {
+        // Server expects ClientPacket variant ReadReceipt — the wrapper is `{type:"ReadReceipt", data:{...}}`.
+        val payload = mapOf(
+            "type" to "ReadReceipt",
+            "data" to mapOf(
+                "sender_uin" to readerUin,        // who is reading
+                "receiver_uin" to senderUin,      // whose msgs were read
+                "read_until" to readUntil
             )
         )
         sendBinary(gson.toJson(payload).encodeToByteArray())
@@ -262,7 +283,7 @@ class WsClient(
         }
 
         private fun handleText(text: String) {
-            Log.d(TAG, "WS msg (${text.length}c): ${text.take(120)}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "WS msg ${text.length}c")
 
             // 1. auth_ok — extract session key
             runCatching {
@@ -271,13 +292,36 @@ class WsClient(
                     val skHex = obj.optString("sk")
                     if (skHex.isNotEmpty()) {
                         sessionKey = Transport.hexToBytes(skHex)
-                        Log.i(TAG, "auth_ok received, session key set (${skHex.length / 2} bytes)")
+                        Log.i(TAG, "auth_ok received, session key set")
                     }
                     scope.launch { _events.emit(WsEvent.Connected) }
                     return
                 }
                 // UserStatus broadcast: {"type":"UserStatus","data":{"uin":...,"status":"Online"}}
-                if (obj.optString("type") == "UserStatus") {
+                if (obj.optString("sys") == "message_deleted") {
+                    val su = obj.optLong("sender_uin", 0L); val ru = obj.optLong("receiver_uin", 0L); val ts = obj.optLong("timestamp", 0L)
+                    if (ts != 0L) scope.launch { _events.emit(WsEvent.MessageDeleted(su, ru, ts)) }
+                    return
+                }
+                if (obj.optString("sys") == "message_edited") {
+                    val su = obj.optLong("sender_uin", 0L); val ru = obj.optLong("receiver_uin", 0L); val ts = obj.optLong("timestamp", 0L); val ct = obj.optString("ciphertext", "")
+                    if (ts != 0L) scope.launch { _events.emit(WsEvent.MessageEdited(su, ru, ts, ct)) }
+                    return
+                }
+                // ReadReceipt frames are JSON `{sender_uin,receiver_uin,read_until}` — no `type`/`sys`.
+                if (obj.has("read_until") && obj.has("sender_uin") && obj.has("receiver_uin") && !obj.has("ciphertext")) {
+                    val su = obj.optLong("sender_uin", 0L); val ru = obj.optLong("receiver_uin", 0L); val until = obj.optLong("read_until", 0L)
+                    scope.launch { _events.emit(WsEvent.ReadReceiptReceived(su, ru, until)) }
+                    return
+                }
+                                if (obj.optString("sys") == "pubkey_changed") {
+                    val u = obj.optLong("uin", 0L)
+                    if (u != 0L) {
+                        scope.launch { _events.emit(WsEvent.PubkeyChanged(u)) }
+                    }
+                    return
+                }
+                                if (obj.optString("type") == "UserStatus") {
                     val data = obj.optJSONObject("data") ?: return@runCatching
                     val u = data.optLong("uin", 0L)
                     val st = data.optString("status", "Offline")
@@ -334,6 +378,7 @@ class WsClient(
     }
 
     private fun scheduleReconnect() {
+        if (stopped) return
         if (retryCount >= maxRetries) {
             Log.w(TAG, "Max retries reached")
             return
@@ -343,6 +388,7 @@ class WsClient(
             val delay = minOf(1000L * (1L shl retryCount), 30_000L)
             Log.d(TAG, "Reconnect in ${delay}ms (attempt ${retryCount + 1})")
             delay(delay)
+            if (stopped) return@launch
             retryCount++
             connect()
         }

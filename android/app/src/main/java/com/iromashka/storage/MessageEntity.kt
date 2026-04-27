@@ -16,7 +16,9 @@ data class MessageEntity(
     val text: String,
     val timestamp: Long,
     val isOutgoing: Boolean,
-    val isE2E: Boolean = true
+    val isE2E: Boolean = true,
+    val isRead: Boolean = false,
+    val isEdited: Boolean = false
 )
 
 @Entity(tableName = "contacts")

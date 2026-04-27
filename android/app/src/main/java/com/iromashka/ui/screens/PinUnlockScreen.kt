@@ -22,7 +22,7 @@ import com.iromashka.ui.theme.LocalThemePalette
 import kotlinx.coroutines.delay
 
 @Composable
-fun PinUnlockScreen(onUnlock: (String) -> Boolean) {
+fun PinUnlockScreen(onUnlock: (String) -> Boolean, onForgotPin: () -> Unit = {}) {
     val p = LocalThemePalette.current
     val ctx = LocalContext.current
     var pin by remember { mutableStateOf("") }
@@ -133,6 +133,10 @@ fun PinUnlockScreen(onUnlock: (String) -> Boolean) {
                         } else {
                             Text("Войти", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = Color.White)
                         }
+                    }
+
+                    TextButton(onClick = onForgotPin, modifier = Modifier.fillMaxWidth()) {
+                        Text("Забыл PIN — восстановить по фразе", color = p.accent, fontSize = 13.sp)
                     }
                 }
             }

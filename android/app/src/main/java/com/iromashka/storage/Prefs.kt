@@ -77,6 +77,23 @@ object Prefs {
     fun getWrappedPriv(ctx: Context): String = securePrefs(ctx).getString("wrapped_priv", "") ?: ""
     fun getPubKey(ctx: Context): String = securePrefs(ctx).getString("pub_key", "") ?: ""
 
+    fun getPhone(ctx: Context): String = securePrefs(ctx).getString("phone", "") ?: ""
+    fun setPhone(ctx: Context, phone: String) {
+        securePrefs(ctx).edit().putString("phone", phone).apply()
+    }
+
+    fun hasRecoveryPhrase(ctx: Context): Boolean =
+        securePrefs(ctx).getBoolean("recovery_set", false)
+    fun markRecoveryPhrase(ctx: Context, set: Boolean) {
+        securePrefs(ctx).edit().putBoolean("recovery_set", set).apply()
+    }
+
+    fun getRecoveryPromptSkipped(ctx: Context): Boolean =
+        simplePrefs(ctx).getBoolean("recovery_prompt_skipped", false)
+    fun setRecoveryPromptSkipped(ctx: Context, v: Boolean) {
+        simplePrefs(ctx).edit().putBoolean("recovery_prompt_skipped", v).apply()
+    }
+
     fun isLoggedIn(ctx: Context): Boolean = getUin(ctx) > 0 && getToken(ctx).isNotEmpty()
 
     fun clear(ctx: Context) {
@@ -144,4 +161,11 @@ object Prefs {
 
     /** Max failures before wiping keys */
     const val MAX_PIN_FAILURES = 50
+
+    // ── Per-chat TTL (disappearing messages) ──────────────────────────────
+    fun getChatTtlSec(ctx: Context, peerUin: Long): Int =
+        simplePrefs(ctx).getInt("ttl_$peerUin", 0)
+    fun setChatTtlSec(ctx: Context, peerUin: Long, ttlSec: Int) {
+        simplePrefs(ctx).edit().putInt("ttl_$peerUin", ttlSec).apply()
+    }
 }

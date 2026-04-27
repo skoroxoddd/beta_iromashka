@@ -108,7 +108,34 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                         popUpTo("login") { inclusive = true }
                     }
                 },
-                onRegister = { navController.navigate("phone_payment") }
+                onRegister = { navController.navigate("phone_payment") },
+                onForgotPin = { navController.navigate("recovery_restore") }
+            )
+        }
+
+        composable("recovery_restore") {
+            RestoreFromMnemonicScreen(
+                onSuccess = {
+                    chatVm.connectWs()
+                    navController.navigate("contacts") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable("recovery_generate") {
+            GenerateMnemonicScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("recovery_prompt") {
+            RecoveryPromptScreen(
+                onCreate = {
+                    navController.popBackStack()
+                    navController.navigate("recovery_generate")
+                },
+                onSkip = { navController.popBackStack() }
             )
         }
 
@@ -140,6 +167,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
 
         composable("pin_unlock") {
             PinUnlockScreen(
+                onForgotPin = { navController.navigate("recovery_restore") },
                 onUnlock = { pin ->
                     val wrappedPriv = Prefs.getWrappedPriv(ctx)
                     if (wrappedPriv.isNotEmpty()) {
@@ -168,6 +196,10 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
             )
         }
 
+        composable("devices") {
+            DevicesScreen(onBack = { navController.popBackStack() })
+        }
+
         composable("contacts") {
             val uin = Prefs.getUin(ctx)
             val nickname = Prefs.getNickname(ctx)
@@ -175,6 +207,9 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
             LaunchedEffect(Unit) {
                 if (chatVm.shouldRefreshToken()) {
                     chatVm.refreshToken()
+                }
+                if (!Prefs.hasRecoveryPhrase(ctx) && !Prefs.getRecoveryPromptSkipped(ctx)) {
+                    navController.navigate("recovery_prompt")
                 }
             }
 
@@ -188,6 +223,8 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                 onGroupChatOpen = { groupId, groupName ->
                     navController.navigate("group_chat/$groupId/$groupName")
                 },
+                onDevices = { navController.navigate("devices") },
+                onRecoveryGenerate = { navController.navigate("recovery_generate") },
                 onLogout = {
                     chatVm.disconnectWs()
                     Prefs.clear(ctx)

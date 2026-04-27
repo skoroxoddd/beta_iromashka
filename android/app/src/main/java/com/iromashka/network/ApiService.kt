@@ -49,6 +49,9 @@ object ApiService {
         @POST("devices/register")
         suspend fun registerDevice(@Header("Authorization") token: String, @Body body: RegisterDeviceRequest)
 
+        @retrofit2.http.DELETE("devices/{device_id}")
+        suspend fun deleteDevice(@Header("Authorization") token: String, @Path("device_id") deviceId: String): okhttp3.ResponseBody
+
         @GET("user/{uin}/devices")
         suspend fun getUserDevices(@Header("Authorization") token: String, @Path("uin") uin: Long): List<DeviceInfoResponse>
 
@@ -71,11 +74,32 @@ object ApiService {
             @Body body: SaveKeyRequest
         ): okhttp3.ResponseBody
 
+        @POST("identity/reset")
+        suspend fun identityReset(
+            @Header("Authorization") token: String,
+            @Body body: IdentityResetRequest
+        ): okhttp3.ResponseBody
+
         @POST("update-pubkey")
         suspend fun updatePubkey(
             @Header("Authorization") token: String,
             @Body body: UpdatePubkeyRequest
         ): okhttp3.ResponseBody
+
+        @POST("recovery/save")
+        suspend fun recoverySave(
+            @Header("Authorization") token: String,
+            @Body body: RecoverySaveRequest
+        ): okhttp3.ResponseBody
+
+        @POST("recovery/lookup")
+        suspend fun recoveryLookup(@Body body: RecoveryLookupRequest): RecoveryLookupResponse
+
+        @POST("recovery/init")
+        suspend fun recoveryInit(@Body body: RecoveryInitRequest): RecoveryInitResponse
+
+        @POST("recovery/complete")
+        suspend fun recoveryComplete(@Body body: RecoveryCompleteRequest): LoginResponse
 
         @POST("payment/create")
         suspend fun createPayment(@Body body: PaymentCreateRequest): PaymentCreateResponse
@@ -135,3 +159,34 @@ data class TypingPayload(val sender_uin: Long, val receiver_uin: Long, val is_ty
 
 data class RefreshRequest(val refresh_token: String)
 data class RefreshResponse(val token: String, val refresh_token: String)
+
+data class IdentityResetRequest(val uin: Long, val pin: String)
+
+data class RecoverySaveRequest(
+    val wrapped_with_seed: String,
+    val salt: String,
+    val phrase_fingerprint: String
+)
+
+data class RecoveryLookupRequest(val phone: String)
+data class RecoveryLookupResponse(val uin: Long?)
+
+data class RecoveryInitRequest(
+    val phone: String,
+    val phrase_fingerprint: String
+)
+
+data class RecoveryInitResponse(
+    val uin: Long,
+    val wrapped_with_seed: String,
+    val salt: String,
+    val recovery_token: String
+)
+
+data class RecoveryCompleteRequest(
+    val uin: Long,
+    val recovery_token: String,
+    val new_pin: String,
+    val new_encrypted_key: String,
+    val new_salt: String
+)
