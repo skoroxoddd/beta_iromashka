@@ -21,7 +21,6 @@ import com.iromashka.network.RecoveryCompleteRequest
 import com.iromashka.network.RecoveryInitRequest
 import com.iromashka.network.RecoveryInitResponse
 import com.iromashka.network.RecoveryLookupRequest
-import com.iromashka.network.PubKeyResponse
 import com.iromashka.storage.Prefs
 import kotlinx.coroutines.launch
 
