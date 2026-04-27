@@ -129,6 +129,16 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
             GenerateMnemonicScreen(onBack = { navController.popBackStack() })
         }
 
+        composable("recovery_prompt") {
+            RecoveryPromptScreen(
+                onCreate = {
+                    navController.popBackStack()
+                    navController.navigate("recovery_generate")
+                },
+                onSkip = { navController.popBackStack() }
+            )
+        }
+
         composable("phone_payment") {
             PhonePaymentScreen(
                 viewModel = authVm,
@@ -157,6 +167,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
 
         composable("pin_unlock") {
             PinUnlockScreen(
+                onForgotPin = { navController.navigate("recovery_restore") },
                 onUnlock = { pin ->
                     val wrappedPriv = Prefs.getWrappedPriv(ctx)
                     if (wrappedPriv.isNotEmpty()) {
@@ -196,6 +207,9 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
             LaunchedEffect(Unit) {
                 if (chatVm.shouldRefreshToken()) {
                     chatVm.refreshToken()
+                }
+                if (!Prefs.hasRecoveryPhrase(ctx) && !Prefs.getRecoveryPromptSkipped(ctx)) {
+                    navController.navigate("recovery_prompt")
                 }
             }
 

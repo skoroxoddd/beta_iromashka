@@ -92,6 +92,9 @@ object ApiService {
             @Body body: RecoverySaveRequest
         ): okhttp3.ResponseBody
 
+        @POST("recovery/lookup")
+        suspend fun recoveryLookup(@Body body: RecoveryLookupRequest): RecoveryLookupResponse
+
         @POST("recovery/init")
         suspend fun recoveryInit(@Body body: RecoveryInitRequest): RecoveryInitResponse
 
@@ -164,6 +167,9 @@ data class RecoverySaveRequest(
     val salt: String,
     val phrase_fingerprint: String
 )
+
+data class RecoveryLookupRequest(val phone: String)
+data class RecoveryLookupResponse(val uin: Long?)
 
 data class RecoveryInitRequest(
     val phone: String,

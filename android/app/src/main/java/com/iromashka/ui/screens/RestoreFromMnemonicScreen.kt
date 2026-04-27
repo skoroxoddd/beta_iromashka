@@ -9,6 +9,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -19,6 +20,8 @@ import com.iromashka.network.ApiService
 import com.iromashka.network.RecoveryCompleteRequest
 import com.iromashka.network.RecoveryInitRequest
 import com.iromashka.network.RecoveryInitResponse
+import com.iromashka.network.RecoveryLookupRequest
+import com.iromashka.network.PubKeyResponse
 import com.iromashka.storage.Prefs
 import kotlinx.coroutines.launch
 
@@ -35,7 +38,6 @@ fun RestoreFromMnemonicScreen(
 
     var stage by remember { mutableStateOf(RestoreStage.Form) }
     var phone by remember { mutableStateOf("+7") }
-    var uinStr by remember { mutableStateOf("") }
     var phrase by remember { mutableStateOf("") }
     var newPin by remember { mutableStateOf("") }
     var newPin2 by remember { mutableStateOf("") }
@@ -45,6 +47,17 @@ fun RestoreFromMnemonicScreen(
 
     var initResp by remember { mutableStateOf<RecoveryInitResponse?>(null) }
     var normalizedPhrase by remember { mutableStateOf("") }
+
+    // live phrase validation
+    val (validCount, allValid) = remember(phrase) {
+        runCatching {
+            val norm = Bip39.normalize(phrase)
+            val parts = norm.split(' ').filter { it.isNotEmpty() }
+            val list = Bip39.loadWordlist(ctx).toHashSet()
+            val valid = parts.count { it in list }
+            valid to (parts.size == 12 && valid == 12)
+        }.getOrDefault(0 to false)
+    }
 
     Scaffold(
         topBar = {
@@ -64,7 +77,7 @@ fun RestoreFromMnemonicScreen(
         ) {
             when (stage) {
                 RestoreStage.Form -> {
-                    Text("Введите телефон, UIN и 12 слов резервной фразы.")
+                    Text("Введите телефон и 12 слов резервной фразы.")
                     OutlinedTextField(
                         value = phone, onValueChange = { phone = it },
                         label = { Text("Телефон") },
@@ -73,25 +86,28 @@ fun RestoreFromMnemonicScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
-                        value = uinStr, onValueChange = { uinStr = it.filter { c -> c.isDigit() } },
-                        label = { Text("UIN") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
                         value = phrase, onValueChange = { phrase = it },
                         label = { Text("12 слов через пробел") },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp)
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
+                        supportingText = {
+                            val color = when {
+                                allValid -> Color(0xFF27AE60)
+                                validCount > 0 -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                            Text("Распознано: $validCount из 12", color = color)
+                        }
                     )
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Button(
-                        enabled = !loading && phone.length >= 5 && uinStr.isNotEmpty() && phrase.isNotBlank(),
+                        enabled = !loading && phone.length >= 5 && allValid,
                         onClick = {
                             scope.launch {
                                 loading = true; error = null
                                 runCatching {
-                                    val uin = uinStr.toLong()
+                                    val lookup = ApiService.api.recoveryLookup(RecoveryLookupRequest(phone))
+                                    val uin = lookup.uin
+                                        ?: throw IllegalStateException("Аккаунт с резервной фразой по этому телефону не найден")
                                     val derived = Bip39.deriveKey(ctx, phrase, uin)
                                     normalizedPhrase = derived.normalized
                                     val resp = ApiService.api.recoveryInit(
@@ -100,28 +116,26 @@ fun RestoreFromMnemonicScreen(
                                             phrase_fingerprint = derived.fingerprint
                                         )
                                     )
-                                    if (resp.uin != uin) {
-                                        throw IllegalStateException("UIN не совпадает с привязанным к телефону")
-                                    }
                                     initResp = resp
                                 }.onSuccess { stage = RestoreStage.NewPin }
-                                 .onFailure { error = "Не удалось: ${it.message}" }
+                                 .onFailure { error = it.message ?: "Ошибка восстановления" }
                                 loading = false
                             }
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     ) { Text(if (loading) "Проверка…" else "Продолжить") }
                 }
                 RestoreStage.NewPin -> {
                     Text("Введите новый PIN. Он заменит старый, остальные сессии будут разлогинены.")
                     OutlinedTextField(
-                        value = newPin, onValueChange = { newPin = it },
-                        label = { Text("Новый PIN") },
+                        value = newPin, onValueChange = { newPin = it.filter { c -> c.isDigit() }.take(6) },
+                        label = { Text("Новый PIN (4-6 цифр)") },
                         singleLine = true, visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
-                        value = newPin2, onValueChange = { newPin2 = it },
+                        value = newPin2, onValueChange = { newPin2 = it.filter { c -> c.isDigit() }.take(6) },
                         label = { Text("Повторите PIN") },
                         singleLine = true, visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
@@ -146,21 +160,26 @@ fun RestoreFromMnemonicScreen(
                                             new_salt = ""
                                         )
                                     )
+                                    val pubkey = runCatching {
+                                        ApiService.api.getPubKey(complete.uin).pubkey
+                                    }.getOrDefault("")
                                     Prefs.saveSession(
                                         ctx,
                                         uin = complete.uin,
-                                        nickname = "",
+                                        nickname = "UIN ${complete.uin}",
                                         token = complete.token,
                                         wrappedPriv = newWrapped,
-                                        pubKey = Prefs.getPubKey(ctx),
+                                        pubKey = pubkey,
                                         refreshToken = complete.refresh_token
                                     )
+                                    Prefs.setPhone(ctx, phone)
                                     Prefs.markRecoveryPhrase(ctx, true)
                                 }.onSuccess { stage = RestoreStage.Done; onSuccess() }
                                  .onFailure { error = "Не удалось завершить: ${it.message}" }
                                 loading = false
                             }
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     ) { Text(if (loading) "Восстановление…" else "Установить PIN и войти") }
                 }
                 RestoreStage.Done -> Text("Готово. Вход выполнен.")

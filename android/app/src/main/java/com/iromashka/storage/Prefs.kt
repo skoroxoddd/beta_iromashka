@@ -88,6 +88,12 @@ object Prefs {
         securePrefs(ctx).edit().putBoolean("recovery_set", set).apply()
     }
 
+    fun getRecoveryPromptSkipped(ctx: Context): Boolean =
+        simplePrefs(ctx).getBoolean("recovery_prompt_skipped", false)
+    fun setRecoveryPromptSkipped(ctx: Context, v: Boolean) {
+        simplePrefs(ctx).edit().putBoolean("recovery_prompt_skipped", v).apply()
+    }
+
     fun isLoggedIn(ctx: Context): Boolean = getUin(ctx) > 0 && getToken(ctx).isNotEmpty()
 
     fun clear(ctx: Context) {
