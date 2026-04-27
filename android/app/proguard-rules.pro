@@ -1,8 +1,15 @@
 # Keep all app classes
 -keep class com.iromashka.** { *; }
+-keep class com.iromashka.model.** { *; }
+-keep class com.iromashka.network.** { *; }
 -keepattributes Signature, InnerClasses, EnclosingMethod
 -keepattributes RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
 -keepattributes AnnotationDefault
+
+# Room
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class *
+-dontwarn androidx.room.paging.**
 
 # Retrofit
 -keepclassmembers,allowshrinking,allowobfuscation interface * {
