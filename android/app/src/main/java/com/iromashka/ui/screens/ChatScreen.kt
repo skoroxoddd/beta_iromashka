@@ -109,9 +109,15 @@ fun ChatScreen(
         }
     }
 
-    // Auto-scroll on new messages
+    // Auto-scroll only when user is at the bottom (last 2 items visible)
+    val isAtBottom by remember {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            lastVisible >= messages.size - 2
+        }
+    }
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
+        if (messages.isNotEmpty() && isAtBottom) {
             listState.animateScrollToItem(messages.size - 1)
             viewModel.markChatRead(toUin)
         }
@@ -350,63 +356,60 @@ private fun MessageBubble(
     palette: com.iromashka.ui.theme.ThemePalette,
     onLongPress: () -> Unit = {}
 ) {
+    val bubbleColor = if (isOutgoing) palette.bubbleOut else palette.bubbleIn
+    val textColor = if (isOutgoing) palette.textPrimary else palette.textPrimary
+    val timeColor = palette.textMuted
+    val bubbleShape = if (isOutgoing)
+        RoundedCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+    else
+        RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isOutgoing) androidx.compose.foundation.layout.Arrangement.End
-        else androidx.compose.foundation.layout.Arrangement.Start,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 1.dp),
+        horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start,
     ) {
         Column(
             modifier = Modifier
                 .widthIn(max = 280.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (isOutgoing) palette.bubbleOut else palette.bubbleIn)
+                .clip(bubbleShape)
+                .background(bubbleColor)
                 .combinedClickable(onClick = {}, onLongClick = onLongPress)
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(horizontal = 11.dp, vertical = 7.dp)
         ) {
             if (MediaUtils.isMediaTag(msg.text)) {
                 MediaBubble(tag = msg.text) { fallback ->
                     com.iromashka.ui.smileys.SmileyText(
                         text = fallback,
-                        color = if (isOutgoing) androidx.compose.ui.graphics.Color.White else palette.textPrimary,
-                        fontSize = 14.sp
+                        color = textColor,
+                        fontSize = 14.5.sp
                     )
                 }
             } else {
                 com.iromashka.ui.smileys.SmileyText(
                     text = msg.text,
-                    color = if (isOutgoing) androidx.compose.ui.graphics.Color.White else palette.textPrimary,
-                    fontSize = 14.sp
+                    color = textColor,
+                    fontSize = 14.5.sp
                 )
             }
-            Spacer(Modifier.height(4.dp))
-            val timeStr = msg.formattedTime()
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.align(Alignment.End)
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .padding(top = 1.dp),
+                horizontalArrangement = Arrangement.End
             ) {
-                Text(timeStr, fontSize = 10.sp,
-                    color = if (isOutgoing) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.6f)
-                    else palette.textSecondary)
+                Text(msg.formattedTime(), fontSize = 11.sp, color = timeColor)
                 if (isOutgoing) {
-                    Spacer(Modifier.width(4.dp))
-                    val status = msg.status
-                    if (status != null) {
-                        when (status) {
-                            MessageStatus.Sent ->
-                                Icon(Icons.Default.Check, null,
-                                    tint = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(12.dp))
-                            MessageStatus.Delivered ->
-                                Text("✓✓", fontSize = 10.sp,
-                                    color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.6f))
-                            MessageStatus.Read ->
-                                Text("✓✓", fontSize = 10.sp,
-                                    color = androidx.compose.ui.graphics.Color(0xFF4FC3F7))
-                        }
-                    } else {
-                        Icon(Icons.Default.Check, null,
-                            tint = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(3.dp))
+                    when (msg.status) {
+                        MessageStatus.Read ->
+                            Text("✓✓", fontSize = 11.sp, color = palette.accent)
+                        MessageStatus.Delivered ->
+                            Text("✓✓", fontSize = 11.sp, color = timeColor)
+                        else ->
+                            Text("✓", fontSize = 11.sp, color = timeColor)
                     }
                 }
             }

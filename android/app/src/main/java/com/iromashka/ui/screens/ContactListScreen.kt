@@ -366,43 +366,70 @@ private fun ContactItem(contact: ContactEntity, palette: com.iromashka.ui.theme.
         else     -> palette.offlineGray
     }
     val statusLabel = when (contact.status) {
-        "Online"    -> "в сети"
-        "Away"      -> "отошёл"
-        else        -> "не в сети"
+        "Online" -> "в сети"
+        "Away"   -> "отошёл"
+        else     -> "не в сети"
     }
+    // Deterministic avatar background from UIN
+    val avatarColors = listOf(
+        0xFF27AE60, 0xFF2196F3, 0xFF9C27B0, 0xFFE91E63,
+        0xFFFF5722, 0xFF009688, 0xFF3F51B5, 0xFF795548
+    )
+    val avatarBg = androidx.compose.ui.graphics.Color(avatarColors[(contact.uin % avatarColors.size).toInt()])
+
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier.size(40.dp),
-            contentAlignment = Alignment.Center
-        ) {
+        Box(modifier = Modifier.size(50.dp)) {
             Box(
-                modifier = Modifier.size(40.dp).clip(CircleShape)
-                    .background(palette.accent),
+                modifier = Modifier
+                    .size(50.dp)
+                    .clip(CircleShape)
+                    .background(avatarBg),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     contact.nickname.take(1).uppercase(),
                     color = androidx.compose.ui.graphics.Color.White,
-                    fontWeight = FontWeight.Bold, fontSize = 18.sp
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
                 )
             }
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .size(11.dp)
+                    .size(13.dp)
                     .clip(CircleShape)
-                    .background(statusColor)
-            )
+                    .background(palette.surface)
+                    .padding(2.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape)
+                        .background(statusColor)
+                )
+            }
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(contact.nickname, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
-                color = palette.textPrimary)
-            Text("UIN: ${contact.uin} · $statusLabel", fontSize = 11.sp, color = palette.textSecondary)
+            Text(
+                contact.nickname,
+                fontWeight = FontWeight.Medium,
+                fontSize = 15.sp,
+                color = palette.textPrimary,
+                maxLines = 1
+            )
+            Text(
+                statusLabel,
+                fontSize = 13.5.sp,
+                color = palette.textSecondary,
+                maxLines = 1
+            )
         }
     }
 }
