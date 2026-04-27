@@ -484,7 +484,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             obj.toString()
         } else text
 
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
             runCatching {
                 val devices = runCatching {
                     api.getUserDevices("Bearer $token", toUin)

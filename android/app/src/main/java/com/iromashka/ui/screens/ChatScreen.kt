@@ -224,6 +224,10 @@ fun ChatScreen(
 
         // ── Input ───────────────────────────────────────
         var showSmileyPicker by remember { mutableStateOf(false) }
+        var showAttachMenu by remember { mutableStateOf(false) }
+        var showTtlMenu by remember { mutableStateOf(false) }
+        val currentTtl = remember(toUin) { com.iromashka.storage.Prefs.getChatTtlSec(ctx, toUin) }
+        var ttlState by remember { mutableStateOf(currentTtl) }
 
         if (showSmileyPicker) {
             com.iromashka.ui.smileys.SmileyPickerPanel { shortcode ->
@@ -235,39 +239,43 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(palette.surface)
-                .padding(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.Bottom,
         ) {
-            IconButton(onClick = { showSmileyPicker = !showSmileyPicker }) {
-                Icon(
-                    Icons.Default.EmojiEmotions,
-                    contentDescription = "Смайлики",
-                    tint = if (showSmileyPicker) palette.accent else palette.textSecondary
-                )
-            }
-            IconButton(onClick = { pickImage.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
-                Icon(Icons.Default.Image, contentDescription = "Картинка", tint = palette.textSecondary)
-            }
-            IconButton(onClick = {
-                val perm = android.Manifest.permission.RECORD_AUDIO
-                if (ContextCompat.checkSelfPermission(ctx, perm) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                    micPermission.launch(perm)
-                } else {
-                    if (recording) stopAndSendAudio() else startAudioRec()
-                }
-            }) {
-                Icon(if (recording) Icons.Default.Stop else Icons.Default.Mic,
-                    contentDescription = if (recording) "Стоп" else "Запись",
-                    tint = if (recording) androidx.compose.ui.graphics.Color.Red else palette.textSecondary)
-            }
-            var showTtlMenu by remember { mutableStateOf(false) }
-            val currentTtl = remember(toUin) { com.iromashka.storage.Prefs.getChatTtlSec(ctx, toUin) }
-            var ttlState by remember { mutableStateOf(currentTtl) }
             Box {
-                IconButton(onClick = { showTtlMenu = true }) {
-                    Icon(Icons.Default.Schedule,
-                        contentDescription = "Самоудаление",
-                        tint = if (ttlState > 0) palette.accent else palette.textSecondary)
+                IconButton(onClick = { showAttachMenu = true }) {
+                    Icon(
+                        Icons.Default.AttachFile,
+                        contentDescription = "Прикрепить",
+                        tint = palette.textSecondary
+                    )
+                }
+                DropdownMenu(expanded = showAttachMenu, onDismissRequest = { showAttachMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Фото") },
+                        leadingIcon = { Icon(Icons.Default.Image, null) },
+                        onClick = {
+                            showAttachMenu = false
+                            pickImage.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Смайлики") },
+                        leadingIcon = { Icon(Icons.Default.EmojiEmotions, null) },
+                        onClick = {
+                            showAttachMenu = false
+                            showSmileyPicker = !showSmileyPicker
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (ttlState > 0) "Самоудаление: вкл" else "Самоудаление") },
+                        leadingIcon = { Icon(Icons.Default.Schedule, null,
+                            tint = if (ttlState > 0) palette.accent else androidx.compose.ui.graphics.Color.Unspecified) },
+                        onClick = {
+                            showAttachMenu = false
+                            showTtlMenu = true
+                        }
+                    )
                 }
                 DropdownMenu(expanded = showTtlMenu, onDismissRequest = { showTtlMenu = false }) {
                     listOf(0 to "Выкл", 30 to "30 сек", 300 to "5 мин", 3600 to "1 час", 86400 to "24 часа", 604800 to "7 дней").forEach { (sec, label) ->
@@ -300,23 +308,34 @@ fun ChatScreen(
                     focusedTextColor = palette.textPrimary,
                     unfocusedTextColor = palette.textPrimary,
                 ),
-                maxLines = 4,
+                maxLines = 5,
             )
             Spacer(Modifier.width(4.dp))
-            IconButton(
-                onClick = {
-                    if (inputText.isNotBlank()) {
+            if (inputText.isNotBlank()) {
+                IconButton(
+                    onClick = {
                         viewModel.sendMessage(toUin, inputText.trim())
                         isUserTyping = false
                         viewModel.sendTyping(toUin, false)
                         playSound(ctx, "outgoing")
                         inputText = ""
+                    },
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Send, "Отправить", tint = palette.accent)
+                }
+            } else {
+                IconButton(onClick = {
+                    val perm = android.Manifest.permission.RECORD_AUDIO
+                    if (ContextCompat.checkSelfPermission(ctx, perm) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        micPermission.launch(perm)
+                    } else {
+                        if (recording) stopAndSendAudio() else startAudioRec()
                     }
-                },
-                enabled = inputText.isNotBlank(),
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Send, "Отправить",
-                    tint = if (inputText.isNotBlank()) palette.accent else palette.textSecondary)
+                }) {
+                    Icon(if (recording) Icons.Default.Stop else Icons.Default.Mic,
+                        contentDescription = if (recording) "Стоп" else "Запись",
+                        tint = if (recording) androidx.compose.ui.graphics.Color.Red else palette.accent)
+                }
             }
         }
     }
