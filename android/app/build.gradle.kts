@@ -12,8 +12,8 @@ android {
         applicationId = "com.iromashka"
         minSdk = 26
         targetSdk = 34
-        versionCode = 17
-        versionName = "1.4.4"
+        versionCode = 18
+        versionName = "1.4.5"
     }
 
     signingConfigs {
@@ -96,6 +96,6 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.5.0")
     implementation("io.coil-kt:coil-gif:2.5.0")
 
-    // Sentry crash reporting
-    implementation("io.sentry:sentry-android:7.8.0")
+    // Sentry crash reporting (disabled until DSN configured)
+    // implementation("io.sentry:sentry-android:7.8.0")
 }
