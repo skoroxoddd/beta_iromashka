@@ -52,6 +52,15 @@ fun SmileyText(text: String, color: Color, fontSize: TextUnit = 14.sp) {
 }
 
 private fun tokenize(text: String): Pair<AnnotatedString, Set<String>> {
+    // Skip smiley substitution for very long strings (e.g. inline base64 images,
+    // 1.5MB+ data URIs). The naive O(text * keys) scan would otherwise freeze
+    // the main thread for several seconds per recomposition.
+    if (text.length > 1000) return AnnotatedString(text) to emptySet()
+    // Skip for any HTML media tag — those are rendered via MediaBubble, this is a fallback path.
+    val trimmed = text.trimStart()
+    if (trimmed.startsWith("<img") || trimmed.startsWith("<audio") || trimmed.startsWith("<video")) {
+        return AnnotatedString(text) to emptySet()
+    }
     val all = SmileyMap.all()
     if (all.isEmpty()) return AnnotatedString(text) to emptySet()
     val sortedKeys = all.map { it.first }.sortedByDescending { it.length }
