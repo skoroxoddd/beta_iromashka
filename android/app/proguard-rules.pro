@@ -5,10 +5,17 @@
 -keepattributes Signature, InnerClasses, EnclosingMethod
 -keepattributes RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
 -keepattributes AnnotationDefault
+-keepattributes *Annotation*
+
+# Compose
+-keep class androidx.compose.** { *; }
+-dontwarn androidx.compose.**
+-keep class kotlin.Metadata { *; }
 
 # Room
 -keep class * extends androidx.room.RoomDatabase
 -keep @androidx.room.Entity class *
+-keep @androidx.room.Dao class * { *; }
 -dontwarn androidx.room.paging.**
 
 # Retrofit
@@ -21,6 +28,7 @@
 
 # Kotlin coroutines + suspend functions (критично для Retrofit suspend)
 -keep,allowobfuscation,allowshrinking class kotlin.coroutines.Continuation
+-keep class kotlinx.coroutines.** { *; }
 -dontwarn kotlin.Unit
 -dontwarn retrofit2.-KotlinExtensions
 -dontwarn retrofit2.-KotlinExtensions$*
@@ -38,13 +46,28 @@
 }
 
 # OkHttp
+-keep class okhttp3.** { *; }
+-keep class okio.** { *; }
 -dontwarn okhttp3.**
 -dontwarn okio.**
 
+# Coil
+-keep class coil.** { *; }
+-dontwarn coil.**
+
+# Sentry
+-keep class io.sentry.** { *; }
+-dontwarn io.sentry.**
+
 # Kotlin
+-keep class kotlin.** { *; }
 -dontwarn kotlin.**
 -dontwarn kotlinx.**
 -dontwarn javax.annotation.**
+
+# AndroidX
+-keep class androidx.** { *; }
+-dontwarn androidx.**
 
 # Misc
 -dontwarn com.google.errorprone.annotations.**
