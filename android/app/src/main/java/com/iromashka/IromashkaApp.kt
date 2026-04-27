@@ -17,7 +17,7 @@ class IromashkaApp : Application(), ImageLoaderFactory {
             options.release = "iromashka@${BuildConfig.VERSION_NAME}"
             options.tracesSampleRate = 0.1
             options.isEnableAutoSessionTracking = true
-            options.diagnosticLevel = SentryLevel.ERROR
+            options.setDiagnosticLevel(SentryLevel.ERROR)
         }
     }
 
