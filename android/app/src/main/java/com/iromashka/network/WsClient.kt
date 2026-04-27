@@ -112,13 +112,9 @@ private object Transport {
 
     private fun chacha20Crypt(key: ByteArray, nonce: ByteArray, data: ByteArray): ByteArray {
         return if (android.os.Build.VERSION.SDK_INT >= 28) {
-            // API 28+: use system ChaCha20
-            // javax.crypto ChaCha20 IV format: counter(4B LE) + nonce(12B) = 16B
-            val iv = ByteArray(16)
-            nonce.copyInto(iv, 4)
             val cipher = Cipher.getInstance("ChaCha20")
             val keySpec = SecretKeySpec(key, "ChaCha20")
-            val ivSpec = IvParameterSpec(iv)
+            val ivSpec = IvParameterSpec(nonce)
             cipher.init(Cipher.ENCRYPT_MODE, keySpec, ivSpec)
             cipher.doFinal(data)
         } else {
