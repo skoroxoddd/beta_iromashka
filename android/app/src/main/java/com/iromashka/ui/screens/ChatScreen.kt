@@ -265,106 +265,121 @@ fun ChatScreen(
             }
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(palette.surface)
-                .padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.Bottom,
+        // PWA-style input area
+        androidx.compose.material3.Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = palette.surface,
+            shadowElevation = 4.dp,
         ) {
-            Box {
-                IconButton(onClick = { showAttachMenu = true }) {
-                    Icon(
-                        Icons.Default.AttachFile,
-                        contentDescription = "Прикрепить",
-                        tint = palette.textSecondary
-                    )
-                }
-                DropdownMenu(expanded = showAttachMenu, onDismissRequest = { showAttachMenu = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Фото") },
-                        leadingIcon = { Icon(Icons.Default.Image, null) },
-                        onClick = {
-                            showAttachMenu = false
-                            pickImage.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                Box {
+                    IconButton(onClick = { showAttachMenu = true }) {
+                        Icon(
+                            Icons.Default.AttachFile,
+                            contentDescription = "Прикрепить",
+                            tint = palette.textSecondary
+                        )
+                    }
+                    DropdownMenu(expanded = showAttachMenu, onDismissRequest = { showAttachMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Фото") },
+                            leadingIcon = { Icon(Icons.Default.Image, null) },
+                            onClick = {
+                                showAttachMenu = false
+                                pickImage.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Смайлики") },
+                            leadingIcon = { Icon(Icons.Default.EmojiEmotions, null) },
+                            onClick = {
+                                showAttachMenu = false
+                                showSmileyPicker = !showSmileyPicker
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (ttlState > 0) "Самоудаление: вкл" else "Самоудаление") },
+                            leadingIcon = { Icon(Icons.Default.Schedule, null,
+                                tint = if (ttlState > 0) palette.accent else androidx.compose.ui.graphics.Color.Unspecified) },
+                            onClick = {
+                                showAttachMenu = false
+                                showTtlMenu = true
+                            }
+                        )
+                    }
+                    DropdownMenu(expanded = showTtlMenu, onDismissRequest = { showTtlMenu = false }) {
+                        listOf(0 to "Выкл", 30 to "30 сек", 300 to "5 мин", 3600 to "1 час", 86400 to "24 часа", 604800 to "7 дней").forEach { (sec, label) ->
+                            DropdownMenuItem(text = { Text(label) }, onClick = {
+                                com.iromashka.storage.Prefs.setChatTtlSec(ctx, toUin, sec)
+                                ttlState = sec
+                                showTtlMenu = false
+                            })
                         }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Смайлики") },
-                        leadingIcon = { Icon(Icons.Default.EmojiEmotions, null) },
-                        onClick = {
-                            showAttachMenu = false
-                            showSmileyPicker = !showSmileyPicker
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (ttlState > 0) "Самоудаление: вкл" else "Самоудаление") },
-                        leadingIcon = { Icon(Icons.Default.Schedule, null,
-                            tint = if (ttlState > 0) palette.accent else androidx.compose.ui.graphics.Color.Unspecified) },
-                        onClick = {
-                            showAttachMenu = false
-                            showTtlMenu = true
-                        }
-                    )
-                }
-                DropdownMenu(expanded = showTtlMenu, onDismissRequest = { showTtlMenu = false }) {
-                    listOf(0 to "Выкл", 30 to "30 сек", 300 to "5 мин", 3600 to "1 час", 86400 to "24 часа", 604800 to "7 дней").forEach { (sec, label) ->
-                        DropdownMenuItem(text = { Text(label) }, onClick = {
-                            com.iromashka.storage.Prefs.setChatTtlSec(ctx, toUin, sec)
-                            ttlState = sec
-                            showTtlMenu = false
-                        })
                     }
                 }
-            }
-            TextField(
-                value = inputText,
-                onValueChange = { inputText = it
-                    if (inputText.isNotEmpty() && !isUserTyping) {
-                        isUserTyping = true
-                        viewModel.sendTyping(toUin, true)
-                    } else if (inputText.isEmpty() && isUserTyping) {
-                        isUserTyping = false
-                        viewModel.sendTyping(toUin, false)
-                    }
-                },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Сообщение...", color = palette.textSecondary) },
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = palette.inputBg,
-                    unfocusedContainerColor = palette.inputBg,
-                    focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                    unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                    focusedTextColor = palette.textPrimary,
-                    unfocusedTextColor = palette.textPrimary,
-                ),
-                maxLines = 5,
-            )
-            Spacer(Modifier.width(4.dp))
-            if (inputText.isNotBlank()) {
-                IconButton(
-                    onClick = {
-                        viewModel.sendMessage(toUin, inputText.trim())
-                        isUserTyping = false
-                        viewModel.sendTyping(toUin, false)
-                        playSound(ctx, "outgoing")
-                        inputText = ""
+                // PWA-style rounded input field
+                TextField(
+                    value = inputText,
+                    onValueChange = { inputText = it
+                        if (inputText.isNotEmpty() && !isUserTyping) {
+                            isUserTyping = true
+                            viewModel.sendTyping(toUin, true)
+                        } else if (inputText.isEmpty() && isUserTyping) {
+                            isUserTyping = false
+                            viewModel.sendTyping(toUin, false)
+                        }
                     },
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(24.dp)),
+                    placeholder = { Text("Сообщение...", color = palette.textSecondary) },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = palette.inputBg,
+                        unfocusedContainerColor = palette.inputBg,
+                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        focusedTextColor = palette.textPrimary,
+                        unfocusedTextColor = palette.textPrimary,
+                    ),
+                    shape = RoundedCornerShape(24.dp),
+                    maxLines = 5,
+                )
+                Spacer(Modifier.width(6.dp))
+                // Circular send/mic button
+                val buttonColor = palette.accent
+                androidx.compose.material3.FloatingActionButton(
+                    onClick = {
+                        if (inputText.isNotBlank()) {
+                            viewModel.sendMessage(toUin, inputText.trim())
+                            isUserTyping = false
+                            viewModel.sendTyping(toUin, false)
+                            playSound(ctx, "outgoing")
+                            inputText = ""
+                        } else {
+                            val perm = android.Manifest.permission.RECORD_AUDIO
+                            if (ContextCompat.checkSelfPermission(ctx, perm) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                micPermission.launch(perm)
+                            } else {
+                                if (recording) stopAndSendAudio() else startAudioRec()
+                            }
+                        }
+                    },
+                    modifier = Modifier.size(48.dp),
+                    containerColor = if (recording) androidx.compose.ui.graphics.Color.Red else buttonColor,
+                    contentColor = androidx.compose.ui.graphics.Color.White,
+                    elevation = androidx.compose.material3.FloatingActionButtonDefaults.elevation(2.dp, 4.dp),
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, "Отправить", tint = palette.accent)
-                }
-            } else {
-                IconButton(onClick = {
-                    val perm = android.Manifest.permission.RECORD_AUDIO
-                    if (ContextCompat.checkSelfPermission(ctx, perm) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                        micPermission.launch(perm)
-                    } else {
-                        if (recording) stopAndSendAudio() else startAudioRec()
-                    }
-                }) {
-                    Icon(if (recording) Icons.Default.Stop else Icons.Default.Mic,
-                        contentDescription = if (recording) "Стоп" else "Запись",
-                        tint = if (recording) androidx.compose.ui.graphics.Color.Red else palette.accent)
+                    Icon(
+                        if (inputText.isNotBlank()) Icons.AutoMirrored.Filled.Send
+                        else if (recording) Icons.Default.Stop
+                        else Icons.Default.Mic,
+                        contentDescription = if (inputText.isNotBlank()) "Отправить" else if (recording) "Стоп" else "Запись"
+                    )
                 }
             }
         }
@@ -380,59 +395,66 @@ private fun MessageBubble(
     onLongPress: () -> Unit = {}
 ) {
     val bubbleColor = if (isOutgoing) palette.bubbleOut else palette.bubbleIn
-    val textColor = if (isOutgoing) palette.textPrimary else palette.textPrimary
+    val textColor = palette.textPrimary
     val timeColor = palette.textMuted
+
+    // PWA-style bubble shapes with tail effect
     val bubbleShape = if (isOutgoing)
-        RoundedCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+        RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 4.dp)
     else
-        RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+        RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 1.dp),
+            .padding(horizontal = 12.dp, vertical = 2.dp),
         horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start,
     ) {
-        Column(
-            modifier = Modifier
-                .widthIn(max = 280.dp)
-                .clip(bubbleShape)
-                .background(bubbleColor)
-                .combinedClickable(onClick = {}, onLongClick = onLongPress)
-                .padding(horizontal = 11.dp, vertical = 7.dp)
+        androidx.compose.material3.Surface(
+            modifier = Modifier.widthIn(max = 300.dp),
+            shape = bubbleShape,
+            color = bubbleColor,
+            shadowElevation = 1.dp,
+            tonalElevation = 0.dp,
         ) {
-            if (MediaUtils.isMediaTag(msg.text)) {
-                MediaBubble(tag = msg.text) { fallback ->
+            Column(
+                modifier = Modifier
+                    .combinedClickable(onClick = {}, onLongClick = onLongPress)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                if (MediaUtils.isMediaTag(msg.text)) {
+                    MediaBubble(tag = msg.text) { fallback ->
+                        com.iromashka.ui.smileys.SmileyText(
+                            text = fallback,
+                            color = textColor,
+                            fontSize = 15.sp
+                        )
+                    }
+                } else {
                     com.iromashka.ui.smileys.SmileyText(
-                        text = fallback,
+                        text = msg.text,
                         color = textColor,
-                        fontSize = 14.5.sp
+                        fontSize = 15.sp
                     )
                 }
-            } else {
-                com.iromashka.ui.smileys.SmileyText(
-                    text = msg.text,
-                    color = textColor,
-                    fontSize = 14.5.sp
-                )
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .padding(top = 1.dp),
-                horizontalArrangement = Arrangement.End
-            ) {
-                Text(msg.formattedTime(), fontSize = 11.sp, color = timeColor)
-                if (isOutgoing) {
-                    Spacer(Modifier.width(3.dp))
-                    when (msg.status) {
-                        MessageStatus.Read ->
-                            Text("✓✓", fontSize = 11.sp, color = palette.accent)
-                        MessageStatus.Delivered ->
-                            Text("✓✓", fontSize = 11.sp, color = timeColor)
-                        else ->
-                            Text("✓", fontSize = 11.sp, color = timeColor)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .padding(top = 2.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Text(msg.formattedTime(), fontSize = 11.sp, color = timeColor)
+                    if (isOutgoing) {
+                        Spacer(Modifier.width(4.dp))
+                        when (msg.status) {
+                            MessageStatus.Read ->
+                                Text("✓✓", fontSize = 12.sp, color = palette.accent)
+                            MessageStatus.Delivered ->
+                                Text("✓✓", fontSize = 12.sp, color = timeColor)
+                            else ->
+                                Text("✓", fontSize = 12.sp, color = timeColor)
+                        }
                     }
                 }
             }
