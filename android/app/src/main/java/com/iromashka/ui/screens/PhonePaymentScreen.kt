@@ -31,7 +31,7 @@ import com.iromashka.viewmodel.PaymentState
 @Composable
 fun PhonePaymentScreen(
     viewModel: AuthViewModel,
-    onPaid: (phone: String) -> Unit,
+    onPaid: (phone: String, uin: Long?) -> Unit,
     onBack: () -> Unit
 ) {
     val p = LocalThemePalette.current
@@ -51,7 +51,7 @@ fun PhonePaymentScreen(
                 viewModel.pollPaymentStatus(s.phone)
             }
             is PaymentState.Paid -> {
-                onPaid(phone.filter { it.isDigit() })
+                onPaid(phone.filter { it.isDigit() }, s.uin)
                 viewModel.resetPayment()
             }
             else -> {}

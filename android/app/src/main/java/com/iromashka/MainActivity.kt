@@ -198,8 +198,12 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
         composable("phone_payment") {
             PhonePaymentScreen(
                 viewModel = authVm,
-                onPaid = { phone ->
+                onPaid = { phone, uin ->
                     paidPhone = phone
+                    // Save UIN if received from server
+                    if (uin != null && uin > 0) {
+                        Prefs.updateUin(ctx, uin)
+                    }
                     navController.navigate("register") {
                         popUpTo("phone_payment") { inclusive = true }
                     }

@@ -86,7 +86,8 @@ data class PaymentCreateResponse(
 )
 
 data class PaymentStatusResponse(
-    val paid: Boolean
+    val paid: Boolean,
+    val uin: Long? = null
 )
 
 // Password migration

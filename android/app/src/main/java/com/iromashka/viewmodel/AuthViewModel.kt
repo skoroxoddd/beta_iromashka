@@ -23,7 +23,7 @@ sealed class PaymentState {
     object Idle : PaymentState()
     object Loading : PaymentState()
     data class Created(val confirmationUrl: String, val phone: String) : PaymentState()
-    object Paid : PaymentState()
+    data class Paid(val uin: Long?) : PaymentState()
     data class Error(val message: String) : PaymentState()
 }
 
@@ -62,9 +62,9 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
             val clean = phone.filter { it.isDigit() }
             repeat(60) {
                 kotlinx.coroutines.delay(2000)
-                val paid = runCatching { api.paymentStatus(clean).paid }.getOrDefault(false)
-                if (paid) {
-                    _paymentState.value = PaymentState.Paid
+                val resp = runCatching { api.paymentStatus(clean) }.getOrNull()
+                if (resp?.paid == true) {
+                    _paymentState.value = PaymentState.Paid(resp.uin)
                     return@launch
                 }
             }
