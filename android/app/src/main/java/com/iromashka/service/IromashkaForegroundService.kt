@@ -37,6 +37,20 @@ class IromashkaForegroundService : Service() {
     private var reconnectCount = 0
     private var wakeLock: PowerManager.WakeLock? = null
 
+    private val wakeLockTimeoutMs = 30 * 60 * 1000L // 30 minutes
+    private val wakeLockHandler = Handler(Looper.getMainLooper())
+    private val wakeLockRenewRunnable = object : Runnable {
+        override fun run() {
+            runCatching {
+                wakeLock?.let {
+                    if (it.isHeld) it.release()
+                    it.acquire(wakeLockTimeoutMs)
+                }
+            }
+            wakeLockHandler.postDelayed(this, wakeLockTimeoutMs - 60_000)
+        }
+    }
+
     override fun onBind(intent: Intent?) = null
 
     override fun onCreate() {
@@ -45,7 +59,8 @@ class IromashkaForegroundService : Service() {
         runCatching {
             val pm = getSystemService(POWER_SERVICE) as PowerManager
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "iromashka:ws")
-                .apply { setReferenceCounted(false); acquire(8 * 60 * 60 * 1000L) }
+                .apply { setReferenceCounted(false); acquire(wakeLockTimeoutMs) }
+            wakeLockHandler.postDelayed(wakeLockRenewRunnable, wakeLockTimeoutMs - 60_000)
         }
     }
 
@@ -123,6 +138,7 @@ class IromashkaForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         ws?.close(1000, null)
-        runCatching { wakeLock?.release() }
+        wakeLockHandler.removeCallbacks(wakeLockRenewRunnable)
+        runCatching { wakeLock?.let { if (it.isHeld) it.release() } }
     }
 }

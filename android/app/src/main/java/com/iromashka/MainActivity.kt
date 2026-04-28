@@ -109,8 +109,9 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                 onSuccess = { _, pin ->
                     sessionPin = pin
                     // Init E2E keys and start WS right after login
-                    chatVm.init(pin)
-                    chatVm.connectWs()
+                    chatVm.init(pin) { ok ->
+                        if (ok) chatVm.connectWs()
+                    }
                     navController.navigate("contacts") {
                         popUpTo("login") { inclusive = true }
                     }
@@ -135,16 +136,32 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                 uin = uin,
                 onSuccess = {
                     // After setting password, init keys and go to contacts
-                    chatVm.init(sessionPin)
-                    chatVm.connectWs()
+                    chatVm.init(sessionPin) { initOk ->
+                        if (!initOk) {
+                            // Key missing locally — recover from server
+                            chatVm.initWithServerRecovery(sessionPin) { ok ->
+                                if (ok) chatVm.connectWs()
+                            }
+                        } else {
+                            chatVm.connectWs()
+                        }
+                    }
                     navController.navigate("contacts") {
                         popUpTo("login") { inclusive = true }
                     }
                 },
                 onSkip = {
                     // Skip migration, init keys and go to contacts
-                    chatVm.init(sessionPin)
-                    chatVm.connectWs()
+                    chatVm.init(sessionPin) { initOk ->
+                        if (!initOk) {
+                            // Key missing locally — recover from server
+                            chatVm.initWithServerRecovery(sessionPin) { ok ->
+                                if (ok) chatVm.connectWs()
+                            }
+                        } else {
+                            chatVm.connectWs()
+                        }
+                    }
                     navController.navigate("contacts") {
                         popUpTo("login") { inclusive = true }
                     }
@@ -211,14 +228,15 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                     val wrappedPriv = Prefs.getWrappedPriv(ctx)
                     if (wrappedPriv.isNotEmpty()) {
                         // Normal path: key is local
-                        val ok = chatVm.init(pin)
-                        if (ok) {
-                            chatVm.connectWs()
-                            navController.navigate("contacts") {
-                                popUpTo("pin_unlock") { inclusive = true }
+                        chatVm.init(pin) { ok ->
+                            if (ok) {
+                                chatVm.connectWs()
+                                navController.navigate("contacts") {
+                                    popUpTo("pin_unlock") { inclusive = true }
+                                }
                             }
                         }
-                        ok
+                        true // don't show error immediately — result comes async
                     } else {
                         // Key was lost (reinstall/EncryptedSharedPreferences cleared) — recover from server
                         chatVm.initWithServerRecovery(pin) { ok ->

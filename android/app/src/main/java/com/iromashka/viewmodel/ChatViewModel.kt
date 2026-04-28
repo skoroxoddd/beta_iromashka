@@ -177,20 +177,31 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val _e2eError = MutableStateFlow<String?>(null)
     val e2eError: StateFlow<String?> = _e2eError
 
-    fun init(pin: String): Boolean {
+    private val _initInProgress = MutableStateFlow(false)
+    val initInProgress: StateFlow<Boolean> = _initInProgress
+
+    fun init(pin: String, onResult: (Boolean) -> Unit) {
         val wrappedPriv = Prefs.getWrappedPriv(ctx)
         if (wrappedPriv.isEmpty()) {
             android.util.Log.e("ChatVM", "No wrapped private key found")
             _e2eError.value = "Ключи не найдены. Перерегистрируйтесь."
-            return false
+            onResult(false)
+            return
         }
-        return runCatching {
-            myPrivKey = CryptoManager.unwrapPrivateKey(wrappedPriv, pin)
-            true
-        }.onFailure {
-            android.util.Log.e("ChatVM", "E2E init failed: ${it.message}")
-            _e2eError.value = "Неверный PIN или ключ повреждён"
-        }.getOrDefault(false)
+        _initInProgress.value = true
+        viewModelScope.launch(Dispatchers.Default) {
+            val result = runCatching {
+                CryptoManager.unwrapPrivateKey(wrappedPriv, pin)
+            }.onFailure {
+                android.util.Log.e("ChatVM", "E2E init failed: ${it.message}")
+                _e2eError.value = "Неверный PIN или ключ повреждён"
+            }.getOrNull()
+            withContext(Dispatchers.Main) {
+                myPrivKey = result
+                _initInProgress.value = false
+                onResult(result != null)
+            }
+        }
     }
 
     // Used when wrappedPriv is missing (EncryptedSharedPreferences cleared, reinstall, etc.)
@@ -683,9 +694,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteMessageForAll(receiverUin: Long, timestamp: Long) {
         val token = Prefs.getToken(ctx); if (token.isEmpty()) return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                val resp = okhttp3.OkHttpClient().newCall(
+                val resp = ApiService.okHttpClient.newCall(
                     okhttp3.Request.Builder()
                         .url("https://iromashka.ru/api/messages/delete")
                         .post(okhttp3.RequestBody.create("application/json; charset=utf-8".toMediaTypeOrNull(),
@@ -700,12 +711,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun editMessageForAll(receiverUin: Long, timestamp: Long, newText: String) {
         val token = Prefs.getToken(ctx); if (token.isEmpty()) return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 val cached = pubkeyCache[receiverUin]
                 val pub = CryptoManager.importPublicKey(cached ?: api.getPubKey(receiverUin).pubkey.also { pubkeyCache[receiverUin] = it })
                 val ct = CryptoManager.encryptMessage(newText, pub)
-                val resp = okhttp3.OkHttpClient().newCall(
+                val resp = ApiService.okHttpClient.newCall(
                     okhttp3.Request.Builder()
                         .url("https://iromashka.ru/api/messages/edit")
                         .post(okhttp3.RequestBody.create("application/json; charset=utf-8".toMediaTypeOrNull(),

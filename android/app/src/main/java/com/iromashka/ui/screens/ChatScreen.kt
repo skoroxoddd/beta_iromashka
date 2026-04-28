@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.content.ContextCompat
 import com.iromashka.media.MediaUtils
@@ -63,6 +64,17 @@ fun ChatScreen(
     var recording by remember { mutableStateOf(false) }
     var recorder by remember { mutableStateOf<android.media.MediaRecorder?>(null) }
     var recFile by remember { mutableStateOf<File?>(null) }
+
+    // Cleanup recorder on exit
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching {
+                recorder?.stop()
+                recorder?.release()
+            }
+            recorder = null
+        }
+    }
 
     fun startAudioRec() {
         runCatching {

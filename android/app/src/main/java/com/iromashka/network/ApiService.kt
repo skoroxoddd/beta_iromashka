@@ -122,7 +122,12 @@ object ApiService {
 
     private val client = OkHttpClient.Builder()
         .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.NONE })
+        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .build()
+
+    val okHttpClient: OkHttpClient get() = client
 
     private val retrofit = Retrofit.Builder()
         .baseUrl(BASE_URL)
