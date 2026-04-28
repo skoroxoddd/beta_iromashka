@@ -81,7 +81,7 @@ fn cmd_encrypt_message(state: tauri::State<'_, AppState>, _uin: u32, recipient_p
 #[tauri::command]
 fn cmd_decrypt_message(_state: tauri::State<'_, AppState>, _uin: u32, sender_pubkey: String, ciphertext: String, secret_key_b64: String) -> Result<String, String> {
     let mgr = CryptoManager::from_secret_key_base64(&secret_key_b64)?;
-    CryptoManager::decrypt_message_with_key(&mgr.secret_key, &ciphertext)
+    CryptoManager::decrypt_message_with_key(mgr.get_secret_key(), &ciphertext)
 }
 
 // ── App State ─────────────────────────────────────────────────────────────────
