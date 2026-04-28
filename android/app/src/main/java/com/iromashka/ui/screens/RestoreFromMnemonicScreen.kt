@@ -148,8 +148,11 @@ fun RestoreFromMnemonicScreen(
                             scope.launch {
                                 loading = true; error = null
                                 runCatching {
-                                    val priv = Bip39.unwrap(ctx, resp.wrapped_with_seed, normalizedPhrase, resp.uin)
-                                    val newWrapped = CryptoManager.wrapPrivateKey(priv, newPin)
+                                    // Derive deterministic keypair from phrase
+                                    val keyPair = Bip39.deriveKeyPair(ctx, normalizedPhrase, resp.uin)
+                                    val newWrapped = CryptoManager.wrapPrivateKey(keyPair.private, newPin)
+                                    val newPubKey = CryptoManager.exportPublicKey(keyPair.public)
+
                                     val complete = ApiService.api.recoveryComplete(
                                         RecoveryCompleteRequest(
                                             uin = resp.uin,
@@ -159,16 +162,19 @@ fun RestoreFromMnemonicScreen(
                                             new_salt = ""
                                         )
                                     )
-                                    val pubkey = runCatching {
-                                        ApiService.api.getPubKey(complete.uin).pubkey
-                                    }.getOrDefault("")
+                                    // Update pubkey on server with deterministic key
+                                    runCatching {
+                                        ApiService.api.updatePubkey("Bearer ${complete.token}",
+                                            com.iromashka.network.UpdatePubkeyRequest(newPubKey))
+                                    }
+
                                     Prefs.saveSession(
                                         ctx,
                                         uin = complete.uin,
                                         nickname = "UIN ${complete.uin}",
                                         token = complete.token,
                                         wrappedPriv = newWrapped,
-                                        pubKey = pubkey,
+                                        pubKey = newPubKey,
                                         refreshToken = complete.refresh_token
                                     )
                                     Prefs.setPhone(ctx, phone)

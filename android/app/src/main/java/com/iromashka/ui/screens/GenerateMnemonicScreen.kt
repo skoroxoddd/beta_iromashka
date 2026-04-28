@@ -60,9 +60,15 @@ fun GenerateMnemonicScreen(onBack: () -> Unit) {
         runCatching {
             val wrappedPriv = Prefs.getWrappedPriv(ctx)
             require(wrappedPriv.isNotEmpty()) { "Локальный ключ не найден" }
-            val priv = CryptoManager.unwrapPrivateKey(wrappedPriv, pin)
-            val w = Bip39.wrap(ctx, priv, phrase, uin)
+            // Derive deterministic keypair from phrase
+            val keyPair = Bip39.deriveKeyPair(ctx, phrase, uin)
+            // Wrap new key with recovery phrase (for server backup)
+            val w = Bip39.wrap(ctx, keyPair.private, phrase, uin)
+            // Wrap new key with PIN (for local storage)
+            val newWrapped = CryptoManager.wrapPrivateKey(keyPair.private, pin)
+            val newPubKey = CryptoManager.exportPublicKey(keyPair.public)
             val token = Prefs.getToken(ctx)
+            // Save recovery to server
             ApiService.api.recoverySave(
                 "Bearer $token",
                 RecoverySaveRequest(
@@ -71,6 +77,14 @@ fun GenerateMnemonicScreen(onBack: () -> Unit) {
                     phrase_fingerprint = w.fingerprint
                 )
             )
+            // Update pubkey on server with deterministic key
+            runCatching {
+                ApiService.api.updatePubkey("Bearer $token",
+                    com.iromashka.network.UpdatePubkeyRequest(newPubKey))
+            }
+            // Update local storage with new deterministic key
+            Prefs.updateWrappedPriv(ctx, newWrapped)
+            Prefs.updatePubKey(ctx, newPubKey)
             Prefs.markRecoveryPhrase(ctx, true)
         }.onSuccess { stage = GenStage.Done; phrase = ""; pin = "" }
          .onFailure {

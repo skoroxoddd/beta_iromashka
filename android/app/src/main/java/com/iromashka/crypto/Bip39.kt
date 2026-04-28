@@ -13,6 +13,15 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import javax.crypto.SecretKeyFactory
+import java.security.KeyPair
+import java.security.KeyPairGenerator
+import java.security.spec.ECGenParameterSpec
+import java.math.BigInteger
+import java.security.spec.ECPrivateKeySpec
+import java.security.spec.ECPublicKeySpec
+import java.security.spec.ECPoint
+import java.security.interfaces.ECPrivateKey
+import java.security.AlgorithmParameters
 
 /**
  * BIP39 + recovery wrap, совместимо с PWA (index.html: bip39Generate / recoveryDeriveKey).
@@ -127,5 +136,105 @@ object Bip39 {
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
         val spec = PBEKeySpec(passphrase.toCharArray(), salt, iters, bits)
         return factory.generateSecret(spec).encoded
+    }
+
+    /**
+     * Deterministically derive a P-256 keypair from BIP39 phrase + UIN.
+     * Same phrase + UIN = same keypair on any device.
+     *
+     * Method: PBKDF2(phrase, "irm-ec/<uin>", 250000) → 32 bytes → EC private key scalar
+     * Public key derived from private key using standard EC point multiplication.
+     */
+    fun deriveKeyPair(ctx: Context, phrase: String, uin: Long): KeyPair {
+        val norm = validate(ctx, phrase) ?: throw IllegalArgumentException("Фраза должна состоять из 12 слов BIP39")
+        val ecSalt = "irm-ec/$uin".toByteArray(Charsets.UTF_8)
+        val privBytes = pbkdf2(norm, ecSalt, PBKDF2_REC_ITERS, 256)
+
+        // Get P-256 curve parameters
+        val params = AlgorithmParameters.getInstance("EC")
+        params.init(ECGenParameterSpec("secp256r1"))
+        val ecParams = params.getParameterSpec(java.security.spec.ECParameterSpec::class.java)
+
+        // Ensure private key is in valid range [1, n-1] where n is curve order
+        var s = BigInteger(1, privBytes)
+        val n = ecParams.order
+        s = s.mod(n.subtract(BigInteger.ONE)).add(BigInteger.ONE)
+
+        // Create private key
+        val privKeySpec = ECPrivateKeySpec(s, ecParams)
+        val kf = KeyFactory.getInstance("EC")
+        val privKey = kf.generatePrivate(privKeySpec) as ECPrivateKey
+
+        // Derive public key: pubKey = privKey * G (generator point)
+        // Use KeyPairGenerator to get public key from private scalar
+        val kpg = KeyPairGenerator.getInstance("EC")
+        kpg.initialize(ECGenParameterSpec("secp256r1"))
+
+        // Calculate public point manually: Q = d * G
+        val g = ecParams.generator
+        val q = scalarMultiply(g, s, ecParams)
+        val pubKeySpec = ECPublicKeySpec(q, ecParams)
+        val pubKey = kf.generatePublic(pubKeySpec)
+
+        return KeyPair(pubKey, privKey)
+    }
+
+    // EC point scalar multiplication using double-and-add
+    private fun scalarMultiply(point: ECPoint, scalar: BigInteger, params: java.security.spec.ECParameterSpec): ECPoint {
+        val curve = params.curve
+        val p = curve.field.let { (it as java.security.spec.ECFieldFp).p }
+
+        var result = ECPoint.POINT_INFINITY
+        var addend = point
+        var k = scalar
+
+        while (k.signum() > 0) {
+            if (k.testBit(0)) {
+                result = pointAdd(result, addend, p, curve.a)
+            }
+            addend = pointDouble(addend, p, curve.a)
+            k = k.shiftRight(1)
+        }
+        return result
+    }
+
+    private fun pointAdd(p1: ECPoint, p2: ECPoint, p: BigInteger, a: BigInteger): ECPoint {
+        if (p1 == ECPoint.POINT_INFINITY) return p2
+        if (p2 == ECPoint.POINT_INFINITY) return p1
+
+        val x1 = p1.affineX
+        val y1 = p1.affineY
+        val x2 = p2.affineX
+        val y2 = p2.affineY
+
+        if (x1 == x2) {
+            return if (y1 == y2) pointDouble(p1, p, a)
+            else ECPoint.POINT_INFINITY
+        }
+
+        val slope = y2.subtract(y1).multiply(x2.subtract(x1).modInverse(p)).mod(p)
+        val x3 = slope.multiply(slope).subtract(x1).subtract(x2).mod(p)
+        val y3 = slope.multiply(x1.subtract(x3)).subtract(y1).mod(p)
+
+        return ECPoint(x3, y3)
+    }
+
+    private fun pointDouble(pt: ECPoint, p: BigInteger, a: BigInteger): ECPoint {
+        if (pt == ECPoint.POINT_INFINITY) return pt
+
+        val x = pt.affineX
+        val y = pt.affineY
+
+        if (y.signum() == 0) return ECPoint.POINT_INFINITY
+
+        val three = BigInteger.valueOf(3)
+        val two = BigInteger.valueOf(2)
+
+        val slope = x.multiply(x).multiply(three).add(a)
+            .multiply(y.multiply(two).modInverse(p)).mod(p)
+        val x3 = slope.multiply(slope).subtract(x.multiply(two)).mod(p)
+        val y3 = slope.multiply(x.subtract(x3)).subtract(y).mod(p)
+
+        return ECPoint(x3, y3)
     }
 }
