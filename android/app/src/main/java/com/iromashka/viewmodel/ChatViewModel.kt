@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.*
 import com.iromashka.crypto.CryptoManager
 import com.iromashka.model.*
 import com.iromashka.network.GroupMessageRequest
+import com.iromashka.network.GroupSendRequest
+import com.iromashka.network.GroupKeyEntry
+import com.iromashka.network.SetGroupKeysRequest
 import com.iromashka.network.ApiService
 import com.iromashka.network.WsClient
 import com.iromashka.network.WsEvent
