@@ -19,6 +19,7 @@ sealed class WsEvent {
     object Connected : WsEvent()
     object Disconnected : WsEvent()
     data class MessageReceived(val envelope: WsEnvelope) : WsEvent()
+    data class GroupMessageReceived(val groupId: Long, val senderUin: Long, val ciphertext: String, val timestamp: Long) : WsEvent()
     data class TypingReceived(val typing: com.iromashka.model.TypingEvent) : WsEvent()
     data class UserStatusReceived(val uin: Long, val status: String) : WsEvent()
     data class PubkeyChanged(val uin: Long) : WsEvent()
@@ -333,6 +334,22 @@ class WsClient(
             if (env != null) {
                 scope.launch { _events.emit(WsEvent.MessageReceived(env)) }
                 return
+            }
+
+            // 2.5 Group message: {"type":"GroupMessage","data":{...}}
+            runCatching {
+                val obj = org.json.JSONObject(text)
+                if (obj.optString("type") == "GroupMessage") {
+                    val data = obj.optJSONObject("data") ?: return@runCatching
+                    val groupId = data.optLong("group_id", 0L)
+                    val senderUin = data.optLong("sender_uin", 0L)
+                    val ciphertext = data.optString("ciphertext", "")
+                    val timestamp = data.optLong("timestamp", System.currentTimeMillis())
+                    if (groupId != 0L && ciphertext.isNotEmpty()) {
+                        scope.launch { _events.emit(WsEvent.GroupMessageReceived(groupId, senderUin, ciphertext, timestamp)) }
+                        return
+                    }
+                }
             }
 
             // 3. Typing event

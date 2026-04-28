@@ -40,6 +40,15 @@ object ApiService {
         @POST("group/{id}/members")
         suspend fun addGroupMember(@Header("Authorization") token: String, @Path("id") groupId: Long, @Body body: AddMemberBody)
 
+        @GET("group/{id}/key")
+        suspend fun getGroupKey(@Header("Authorization") token: String, @Path("id") groupId: Long): GroupKeyResponse
+
+        @POST("group/{id}/key")
+        suspend fun setGroupKeys(@Header("Authorization") token: String, @Path("id") groupId: Long, @Body body: SetGroupKeysRequest): okhttp3.ResponseBody
+
+        @POST("group/{id}/send")
+        suspend fun sendGroupMessage(@Header("Authorization") token: String, @Path("id") groupId: Long, @Body body: GroupSendRequest): okhttp3.ResponseBody
+
         @POST("contacts/discover")
         suspend fun discoverContacts(@Header("Authorization") token: String, @Body body: DiscoverRequest): List<DiscoveredContactItem>
 
@@ -127,6 +136,10 @@ data class GroupItem(val id: Long, val name: String)
 data class GroupMemberItem(val uin: Long, val nickname: String)
 data class AddMemberBody(val uin: Long)
 data class GroupMessageRequest(val senderUin: Long = 0, val group_id: Long, val ciphertext: String)
+data class GroupKeyResponse(val encrypted_key: String)
+data class SetGroupKeysRequest(val keys: List<GroupKeyEntry>)
+data class GroupKeyEntry(val uin: Long, val encrypted_key: String)
+data class GroupSendRequest(val ciphertext: String)
 
 data class DiscoverRequest(val phones: List<String>)
 data class DiscoveredContactItem(val uin: Int, val phone: String, val nickname: String)

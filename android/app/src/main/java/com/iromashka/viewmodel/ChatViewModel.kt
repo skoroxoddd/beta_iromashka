@@ -63,6 +63,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     data class GroupItemDb(val id: Long, val name: String)
 
+    // Group key cache
+    private val groupKeyCache = java.util.concurrent.ConcurrentHashMap<Long, javax.crypto.SecretKey>()
+
     private val _typingUsers = MutableStateFlow<Set<Long>>(emptySet())
     val typingUsers: StateFlow<Set<Long>> = _typingUsers
 
@@ -261,6 +264,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             _authFailed.value = true
                         }
                         is WsEvent.MessageReceived -> handleIncoming(event.envelope)
+                        is WsEvent.GroupMessageReceived -> handleGroupIncoming(event)
                         is WsEvent.TypingReceived -> {
                             if (event.typing.is_typing) {
                                 _typingUsers.value += event.typing.sender_uin
@@ -400,18 +404,22 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun sendGroupMessage(groupId: Long, text: String) {
         val myUin = Prefs.getUin(ctx)
-        @Suppress("UNUSED_VARIABLE") val privKey = myPrivKey ?: return
+        val privKey = myPrivKey ?: return
+        val token = Prefs.getToken(ctx)
 
         viewModelScope.launch {
             runCatching {
-                val pubKeyResp = api.getPubKey(myUin)
-                val recipPub = CryptoManager.importPublicKey(pubKeyResp.pubkey)
-                val ciphertext = CryptoManager.encryptMessage(text, recipPub)
+                // Get or create group key
+                val groupKey = getOrCreateGroupKey(groupId, token, privKey)
+                    ?: throw IllegalStateException("Не удалось получить ключ группы")
 
-                wsClient?.sendGroupMessage(
-                    GroupMessageRequest(group_id = groupId, senderUin = myUin, ciphertext = ciphertext)
-                )
+                // Encrypt message with group key
+                val ciphertext = com.iromashka.crypto.GroupCrypto.encryptWithGroupKey(text, groupKey)
 
+                // Send via HTTP API (more reliable than WS for groups)
+                api.sendGroupMessage("Bearer $token", groupId, GroupSendRequest(ciphertext))
+
+                // Save locally
                 grpDao.insertMessage(GroupMessageEntity(
                     groupId = groupId,
                     senderUin = myUin,
@@ -423,6 +431,63 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 android.util.Log.e("ChatVM", "SendGroupMessage failed: ${err.message}")
             }
         }
+    }
+
+    private suspend fun getOrCreateGroupKey(groupId: Long, token: String, privKey: java.security.PrivateKey): javax.crypto.SecretKey? {
+        // Check cache first
+        groupKeyCache[groupId]?.let { return it }
+
+        // Try to fetch from server
+        runCatching {
+            val resp = api.getGroupKey("Bearer $token", groupId)
+            val decrypted = com.iromashka.crypto.GroupCrypto.decryptGroupKey(resp.encrypted_key, privKey)
+            if (decrypted != null) {
+                val key = com.iromashka.crypto.GroupCrypto.importGroupKey(decrypted)
+                groupKeyCache[groupId] = key
+                return key
+            }
+        }
+
+        // No key on server — create and distribute
+        return distributeGroupKey(groupId, token, privKey)
+    }
+
+    private suspend fun distributeGroupKey(groupId: Long, token: String, privKey: java.security.PrivateKey): javax.crypto.SecretKey? {
+        val myUin = Prefs.getUin(ctx)
+
+        // Generate new group key
+        val groupKey = com.iromashka.crypto.GroupCrypto.generateGroupKey()
+        val groupKeyB64 = com.iromashka.crypto.GroupCrypto.exportGroupKey(groupKey)
+
+        // Get group members
+        val members = runCatching { api.getGroupMembers("Bearer $token", groupId) }.getOrNull() ?: return null
+
+        // Encrypt key for each member
+        val keys = mutableListOf<GroupKeyEntry>()
+
+        // Include self
+        val allUins = (members.map { it.uin } + myUin).distinct()
+
+        for (uin in allUins) {
+            val pubKeyResp = runCatching { api.getPubKey(uin) }.getOrNull() ?: continue
+            val encrypted = com.iromashka.crypto.GroupCrypto.encryptGroupKeyForMember(groupKeyB64, pubKeyResp.pubkey)
+            if (encrypted != null) {
+                keys.add(GroupKeyEntry(uin, encrypted))
+            }
+        }
+
+        if (keys.isEmpty()) return null
+
+        // Upload to server
+        runCatching {
+            api.setGroupKeys("Bearer $token", groupId, SetGroupKeysRequest(keys))
+        }.onFailure {
+            android.util.Log.e("ChatVM", "Failed to distribute group key: ${it.message}")
+            return null
+        }
+
+        groupKeyCache[groupId] = groupKey
+        return groupKey
     }
 
     // -- Message handling
@@ -460,6 +525,37 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             isE2E = true
         ))
         if (ttlSec > 0) scheduleTtlDelete(chatUin, nowMs, ttlSec)
+    }
+
+    private suspend fun handleGroupIncoming(event: WsEvent.GroupMessageReceived) {
+        val myUin = Prefs.getUin(ctx)
+        val privKey = myPrivKey ?: return
+        val token = Prefs.getToken(ctx)
+
+        // Skip own messages (already saved locally when sent)
+        if (event.senderUin == myUin) return
+
+        // Get group key and decrypt
+        val groupKey = getOrCreateGroupKey(event.groupId, token, privKey)
+        val plaintext = if (groupKey != null) {
+            com.iromashka.crypto.GroupCrypto.decryptWithGroupKey(event.ciphertext, groupKey)
+                ?: "[не удалось расшифровать]"
+        } else {
+            "[нет ключа группы]"
+        }
+
+        // Get sender nickname
+        val senderNick = runCatching {
+            contactDao.getByUin(event.senderUin)?.nickname
+        }.getOrNull() ?: "UIN ${event.senderUin}"
+
+        grpDao.insertMessage(GroupMessageEntity(
+            groupId = event.groupId,
+            senderUin = event.senderUin,
+            senderNickname = senderNick,
+            text = plaintext,
+            timestamp = event.timestamp
+        ))
     }
 
     private fun scheduleTtlDelete(chatUin: Long, ts: Long, ttlSec: Int) {
