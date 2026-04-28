@@ -86,6 +86,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
 
     var sessionPin by remember { mutableStateOf("") }
     var paidPhone by remember { mutableStateOf("") }
+    var migrationUin by remember { mutableStateOf(0L) }
 
     val startDest = if (Prefs.isLoggedIn(ctx)) "pin_unlock" else "login"
 
@@ -106,6 +107,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
             LoginScreen(
                 viewModel = authVm,
                 onSuccess = { _, pin ->
+                    sessionPin = pin
                     // Init E2E keys and start WS right after login
                     chatVm.init(pin)
                     chatVm.connectWs()
@@ -115,7 +117,9 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                 },
                 onRegister = { navController.navigate("phone_payment") },
                 onForgotPin = { navController.navigate("recovery_restore") },
-                onNeedsMigration = { uin ->
+                onNeedsMigration = { uin, pin ->
+                    sessionPin = pin
+                    migrationUin = uin
                     navController.navigate("password_migration/$uin")
                 }
             )
@@ -130,13 +134,17 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                 viewModel = authVm,
                 uin = uin,
                 onSuccess = {
-                    // After setting password, go to contacts
+                    // After setting password, init keys and go to contacts
+                    chatVm.init(sessionPin)
+                    chatVm.connectWs()
                     navController.navigate("contacts") {
                         popUpTo("login") { inclusive = true }
                     }
                 },
                 onSkip = {
-                    // Skip migration, still go to contacts
+                    // Skip migration, init keys and go to contacts
+                    chatVm.init(sessionPin)
+                    chatVm.connectWs()
                     navController.navigate("contacts") {
                         popUpTo("login") { inclusive = true }
                     }

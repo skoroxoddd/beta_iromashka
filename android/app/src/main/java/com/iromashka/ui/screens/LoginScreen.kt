@@ -27,7 +27,7 @@ fun LoginScreen(
     onSuccess: (Long, String) -> Unit,
     onRegister: () -> Unit,
     onForgotPin: () -> Unit = {},
-    onNeedsMigration: (Long) -> Unit = {}
+    onNeedsMigration: (Long, String) -> Unit = { _, _ -> }
 ) {
     val p = LocalThemePalette.current
     val state by viewModel.state.collectAsState()
@@ -39,7 +39,7 @@ fun LoginScreen(
     LaunchedEffect(state) {
         when (state) {
             is AuthState.Success -> onSuccess((state as AuthState.Success).uin, pinInput)
-            is AuthState.NeedsPasswordMigration -> onNeedsMigration((state as AuthState.NeedsPasswordMigration).uin)
+            is AuthState.NeedsPasswordMigration -> onNeedsMigration((state as AuthState.NeedsPasswordMigration).uin, pinInput)
             else -> {}
         }
     }
