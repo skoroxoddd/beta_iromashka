@@ -212,7 +212,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         // Fast path: key exists locally
         if (wrappedPriv.isNotEmpty()) {
-            onResult(init(pin))
+            init(pin, onResult)
             return
         }
 
