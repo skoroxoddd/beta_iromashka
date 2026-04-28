@@ -114,7 +114,33 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                     }
                 },
                 onRegister = { navController.navigate("phone_payment") },
-                onForgotPin = { navController.navigate("recovery_restore") }
+                onForgotPin = { navController.navigate("recovery_restore") },
+                onNeedsMigration = { uin ->
+                    navController.navigate("password_migration/$uin")
+                }
+            )
+        }
+
+        composable(
+            "password_migration/{uin}",
+            arguments = listOf(navArgument("uin") { type = NavType.LongType })
+        ) { back ->
+            val uin = back.arguments!!.getLong("uin")
+            PasswordMigrationScreen(
+                viewModel = authVm,
+                uin = uin,
+                onSuccess = {
+                    // After setting password, go to contacts
+                    navController.navigate("contacts") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                },
+                onSkip = {
+                    // Skip migration, still go to contacts
+                    navController.navigate("contacts") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                }
             )
         }
 
