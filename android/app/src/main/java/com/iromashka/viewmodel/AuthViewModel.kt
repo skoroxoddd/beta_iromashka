@@ -15,6 +15,7 @@ sealed class AuthState {
     object Idle : AuthState()
     object Loading : AuthState()
     data class Success(val uin: Long) : AuthState()
+    data class NeedsPasswordMigration(val uin: Long, val token: String) : AuthState()
     data class Error(val message: String) : AuthState()
 }
 
@@ -74,7 +75,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
         _paymentState.value = PaymentState.Idle
     }
 
-    fun register(nickname: String, pin: String, phone: String = "70000000000") {
+    fun register(nickname: String, pin: String, password: String, phone: String = "70000000000") {
         viewModelScope.launch {
             _state.value = AuthState.Loading
             runCatching {
@@ -82,7 +83,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 val pubB64 = CryptoManager.exportPublicKey(kp.public)
                 val wrappedPriv = CryptoManager.wrapPrivateKey(kp.private, pin)
 
-                val resp = api.register(RegisterRequest(phone, pin, pubB64))
+                val resp = api.register(RegisterRequest(phone, pin, password, pubB64))
 
                 Prefs.saveSession(ctx, resp.uin, nickname, resp.token, wrappedPriv, pubB64, resp.refresh_token)
                 registerDevice(resp.token, pubB64)
@@ -97,12 +98,16 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
 
                 _state.value = AuthState.Success(resp.uin)
             }.onFailure {
-                _state.value = AuthState.Error(it.message ?: "Registration failed")
+                val msg = when {
+                    it.message?.contains("weak_password") == true -> "Слабый пароль: мин. 12 символов, 1 заглавная, 1 цифра, 1 спецсимвол"
+                    else -> it.message ?: "Registration failed"
+                }
+                _state.value = AuthState.Error(msg)
             }
         }
     }
 
-    fun login(uin: Long, pin: String) {
+    fun login(uin: Long, pin: String, password: String? = null) {
         viewModelScope.launch {
             _state.value = AuthState.Loading
             runCatching {
@@ -117,7 +122,17 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 val pubKey = Prefs.getPubKey(ctx)
-                val resp = api.login(LoginRequest(uin, pin, pubKey.ifEmpty { null }))
+                val resp = api.login(LoginRequest(uin, pin, password, pubKey.ifEmpty { null }))
+
+                // Check if needs password migration
+                if (resp.needs_password_migration) {
+                    Prefs.updateToken(ctx, resp.token)
+                    Prefs.updateRefreshToken(ctx, resp.refresh_token)
+                    Prefs.updateUin(ctx, resp.uin)
+                    _state.value = AuthState.NeedsPasswordMigration(resp.uin, resp.token)
+                    return@launch
+                }
+
                 Prefs.updateToken(ctx, resp.token)
                 Prefs.updateRefreshToken(ctx, resp.refresh_token)
                 Prefs.updateTokenTimestamp(ctx, System.currentTimeMillis())
@@ -197,6 +212,23 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resetState() {
         _state.value = AuthState.Idle
+    }
+
+    fun setPassword(password: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            runCatching {
+                val token = Prefs.getToken(ctx)
+                api.setPassword("Bearer $token", SetPasswordRequest(password))
+                onSuccess()
+            }.onFailure {
+                val msg = when {
+                    it.message?.contains("weak_password") == true -> "Слабый пароль"
+                    it.message?.contains("already_set") == true -> "Пароль уже установлен"
+                    else -> it.message ?: "Не удалось установить пароль"
+                }
+                onError(msg)
+            }
+        }
     }
 
     private suspend fun registerDevice(token: String, pubKey: String) {

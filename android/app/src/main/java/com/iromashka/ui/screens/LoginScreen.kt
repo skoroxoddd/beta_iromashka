@@ -26,16 +26,22 @@ fun LoginScreen(
     viewModel: AuthViewModel,
     onSuccess: (Long, String) -> Unit,
     onRegister: () -> Unit,
-    onForgotPin: () -> Unit = {}
+    onForgotPin: () -> Unit = {},
+    onNeedsMigration: (Long) -> Unit = {}
 ) {
     val p = LocalThemePalette.current
     val state by viewModel.state.collectAsState()
 
     var uinInput by remember { mutableStateOf("") }
     var pinInput by remember { mutableStateOf("") }
+    var passwordInput by remember { mutableStateOf("") }
 
     LaunchedEffect(state) {
-        if (state is AuthState.Success) onSuccess((state as AuthState.Success).uin, pinInput)
+        when (state) {
+            is AuthState.Success -> onSuccess((state as AuthState.Success).uin, pinInput)
+            is AuthState.NeedsPasswordMigration -> onNeedsMigration((state as AuthState.NeedsPasswordMigration).uin)
+            else -> {}
+        }
     }
 
     Box(Modifier.fillMaxSize().background(p.background)) {
@@ -122,12 +128,32 @@ fun LoginScreen(
                         )
                     )
 
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = { passwordInput = it },
+                        label = { Text("Пароль (если установлен)", color = p.textSecondary) },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = p.accent,
+                            unfocusedBorderColor = p.divider,
+                            focusedTextColor = p.textPrimary,
+                            unfocusedTextColor = p.textPrimary,
+                            unfocusedContainerColor = p.inputBg,
+                            focusedContainerColor = p.inputBg,
+                        )
+                    )
+
                     Spacer(Modifier.height(20.dp))
 
                     Button(
                         onClick = {
                             val uin = uinInput.toLongOrNull() ?: return@Button
-                            if (pinInput.length >= 6) viewModel.login(uin, pinInput)
+                            if (pinInput.length >= 6) viewModel.login(uin, pinInput, passwordInput.ifEmpty { null })
                         },
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                         enabled = uinInput.isNotBlank() && pinInput.length >= 6,

@@ -110,6 +110,9 @@ object ApiService {
         @POST("recovery/complete")
         suspend fun recoveryComplete(@Body body: RecoveryCompleteRequest): LoginResponse
 
+        @POST("set-password")
+        suspend fun setPassword(@Header("Authorization") token: String, @Body body: SetPasswordRequest): okhttp3.ResponseBody
+
         @POST("payment/create")
         suspend fun createPayment(@Body body: PaymentCreateRequest): PaymentCreateResponse
 

@@ -7,6 +7,7 @@ import com.google.gson.annotations.SerializedName
 data class RegisterRequest(
     @SerializedName("phone") val phone: String,
     val pin: String,
+    val password: String,
     val public_key: String
 )
 
@@ -19,6 +20,7 @@ data class RegisterResponse(
 data class LoginRequest(
     val uin: Long,
     val pin: String,
+    val password: String? = null,
     val public_key: String? = null
 )
 
@@ -28,7 +30,8 @@ data class LoginResponse(
     val refresh_token: String = "",
     val encrypted_key: String? = null,
     val key_salt: String? = null,
-    val new_session: Boolean = false
+    val new_session: Boolean = false,
+    val needs_password_migration: Boolean = false
 )
 
 data class ChangePinRequest(
@@ -84,4 +87,9 @@ data class PaymentCreateResponse(
 
 data class PaymentStatusResponse(
     val paid: Boolean
+)
+
+// Password migration
+data class SetPasswordRequest(
+    val password: String
 )
