@@ -82,6 +82,11 @@ fun GenerateMnemonicScreen(onBack: () -> Unit) {
                 ApiService.api.updatePubkey("Bearer $token",
                     com.iromashka.network.UpdatePubkeyRequest(newPubKey))
             }
+            // Save PIN-wrapped key to server for cross-device PIN unlock
+            runCatching {
+                ApiService.api.saveUserKey("Bearer $token",
+                    com.iromashka.network.SaveKeyRequest(newWrapped, ""))
+            }
             // Update local storage with new deterministic key
             Prefs.updateWrappedPriv(ctx, newWrapped)
             Prefs.updatePubKey(ctx, newPubKey)
