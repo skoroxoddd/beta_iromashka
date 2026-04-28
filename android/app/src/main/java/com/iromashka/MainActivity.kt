@@ -140,14 +140,19 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                         if (!initOk) {
                             // Key missing locally — recover from server
                             chatVm.initWithServerRecovery(sessionPin) { ok ->
-                                if (ok) chatVm.connectWs()
+                                if (ok) {
+                                    chatVm.connectWs()
+                                    navController.navigate("contacts") {
+                                        popUpTo("login") { inclusive = true }
+                                    }
+                                }
                             }
                         } else {
                             chatVm.connectWs()
+                            navController.navigate("contacts") {
+                                popUpTo("login") { inclusive = true }
+                            }
                         }
-                    }
-                    navController.navigate("contacts") {
-                        popUpTo("login") { inclusive = true }
                     }
                 },
                 onSkip = {
@@ -156,14 +161,19 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                         if (!initOk) {
                             // Key missing locally — recover from server
                             chatVm.initWithServerRecovery(sessionPin) { ok ->
-                                if (ok) chatVm.connectWs()
+                                if (ok) {
+                                    chatVm.connectWs()
+                                    navController.navigate("contacts") {
+                                        popUpTo("login") { inclusive = true }
+                                    }
+                                }
                             }
                         } else {
                             chatVm.connectWs()
+                            navController.navigate("contacts") {
+                                popUpTo("login") { inclusive = true }
+                            }
                         }
-                    }
-                    navController.navigate("contacts") {
-                        popUpTo("login") { inclusive = true }
                     }
                 }
             )

@@ -582,7 +582,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun sendMessage(toUin: Long, text: String) {
         val myUin = Prefs.getUin(ctx)
-        @Suppress("UNUSED_VARIABLE") val privKey = myPrivKey ?: return
+        val privKey = myPrivKey
+        if (privKey == null) {
+            android.util.Log.e("ChatVM", "sendMessage failed: myPrivKey is null, E2E not initialized")
+            _e2eError.value = "E2E не инициализирован. Перезайдите в приложение."
+            return
+        }
         val token = Prefs.getToken(ctx)
 
         // Wrap into D5 reply/ttl envelope if chat has TTL set
