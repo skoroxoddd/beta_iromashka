@@ -14,10 +14,15 @@ import androidx.core.content.ContextCompat
 import androidx.navigation.*
 import androidx.navigation.compose.*
 import com.iromashka.storage.Prefs
+import com.iromashka.storage.AppDatabase
 import com.iromashka.ui.screens.*
 import com.iromashka.ui.theme.AppTheme
 import com.iromashka.viewmodel.AuthViewModel
 import com.iromashka.viewmodel.ChatViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
@@ -227,6 +232,13 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                 onRecoveryGenerate = { navController.navigate("recovery_generate") },
                 onLogout = {
                     chatVm.disconnectWs()
+                    // Clear database
+                    MainScope().launch {
+                        withContext(Dispatchers.IO) {
+                            AppDatabase.getInstance(ctx).clearAllTables()
+                        }
+                    }
+                    AppDatabase.clearInstance()
                     Prefs.clear(ctx)
                     navController.navigate("login") {
                         popUpTo(0) { inclusive = true }

@@ -117,17 +117,19 @@ fun ChatScreen(
         }
     }
 
-    // Initial scroll to bottom when chat opens
-    LaunchedEffect(toUin) {
-        if (messages.isNotEmpty()) {
+    // Initial scroll to bottom when chat opens — wait for messages to load
+    var initialScrollDone by remember { mutableStateOf(false) }
+    LaunchedEffect(toUin, messages.size) {
+        if (messages.isNotEmpty() && !initialScrollDone) {
             listState.scrollToItem(messages.size - 1)
+            initialScrollDone = true
+            viewModel.markChatRead(toUin)
         }
-        viewModel.markChatRead(toUin)
     }
 
     // Auto-scroll on new messages only if already at bottom
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty() && isAtBottom) {
+        if (messages.isNotEmpty() && initialScrollDone && isAtBottom) {
             listState.animateScrollToItem(messages.size - 1)
             viewModel.markChatRead(toUin)
         }
