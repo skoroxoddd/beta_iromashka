@@ -185,12 +185,10 @@ class WsClient(
 
     fun sendMultiDeviceMessage(senderUin: Long, receiverUin: Long, payloads: List<com.iromashka.crypto.CryptoManager.DevicePayload>) {
         val payload = mapOf(
-            "type" to "Message",
+            "type" to "MultiMessage",
             "data" to mapOf(
-                "sender_uin" to senderUin,
                 "receiver_uin" to receiverUin,
-                "payloads" to payloads.map { mapOf("device_id" to it.device_id, "ciphertext" to it.ciphertext) },
-                "timestamp" to System.currentTimeMillis()
+                "payloads" to payloads.map { mapOf("device_id" to it.device_id, "ciphertext" to it.ciphertext) }
             )
         )
         sendBinary(gson.toJson(payload).encodeToByteArray())
