@@ -77,6 +77,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val _messagesState = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messagesState: StateFlow<List<ChatMessage>> = _messagesState
     private var chatCollectionJob: Job? = null
+    private val ttlJobs = mutableMapOf<Long, Job>()
 
     // Market
     var marketUin: Long? by mutableStateOf(null)
@@ -581,10 +582,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun scheduleTtlDelete(chatUin: Long, ts: Long, ttlSec: Int) {
-        viewModelScope.launch {
+        ttlJobs[ts]?.cancel()
+        ttlJobs[ts] = viewModelScope.launch {
             kotlinx.coroutines.delay(ttlSec * 1000L)
             msgDao.deleteByTs(ts, chatUin, Prefs.getUin(ctx))
             msgDao.deleteByTs(ts, Prefs.getUin(ctx), chatUin)
+            ttlJobs.remove(ts)
         }
     }
 

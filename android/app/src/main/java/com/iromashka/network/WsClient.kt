@@ -283,8 +283,13 @@ class WsClient(
                 if (obj.optString("sys") == "auth_ok") {
                     val skHex = obj.optString("sk")
                     if (skHex.isNotEmpty()) {
-                        sessionKey = Transport.hexToBytes(skHex)
-                        Log.i(TAG, "auth_ok received, session key set")
+                        val skBytes = Transport.hexToBytes(skHex)
+                        if (skBytes != null && skBytes.size == 32) {
+                            sessionKey = skBytes
+                            Log.i(TAG, "auth_ok received, session key set")
+                        } else {
+                            Log.e(TAG, "Invalid session key length: ${skBytes?.size}")
+                        }
                     }
                     scope.launch { _events.emit(WsEvent.Connected) }
                     return

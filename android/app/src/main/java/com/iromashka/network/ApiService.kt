@@ -9,8 +9,15 @@ import com.google.gson.Gson
 import com.iromashka.model.*
 
 object ApiService {
-    const val WS_URL = "wss://iromashka.ru/chat"
-    private const val BASE_URL = "https://iromashka.ru/api/"
+    private const val DEFAULT_HOST = "iromashka.ru"
+    private var host: String = DEFAULT_HOST
+
+    val WS_URL: String get() = "wss://$host/chat"
+    private val BASE_URL: String get() = "https://$host/api/"
+
+    fun setHost(newHost: String) {
+        host = newHost.ifEmpty { DEFAULT_HOST }
+    }
 
     interface Api {
         @POST("register")
@@ -138,13 +145,26 @@ object ApiService {
 
     val okHttpClient: OkHttpClient get() = client
 
-    private val retrofit = Retrofit.Builder()
-        .baseUrl(BASE_URL)
-        .addConverterFactory(GsonConverterFactory.create(Gson()))
-        .client(client)
-        .build()
+    private var _retrofit: Retrofit? = null
+    private var _api: Api? = null
 
-    val api: Api = retrofit.create(Api::class.java)
+    private fun getRetrofit(): Retrofit {
+        val current = _retrofit
+        if (current != null && current.baseUrl().toString() == BASE_URL) return current
+        val newRetrofit = Retrofit.Builder()
+            .baseUrl(BASE_URL)
+            .addConverterFactory(GsonConverterFactory.create(Gson()))
+            .client(client)
+            .build()
+        _retrofit = newRetrofit
+        _api = newRetrofit.create(Api::class.java)
+        return newRetrofit
+    }
+
+    val api: Api get() {
+        getRetrofit()
+        return _api!!
+    }
 }
 
 data class CreateGroupRequest(val name: String, val member_uins: List<Long>)
