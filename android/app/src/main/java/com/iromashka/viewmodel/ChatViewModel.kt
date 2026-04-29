@@ -145,9 +145,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 for (item in relevant) {
                     val isOutgoing = item.sender_uin == myUin
                     val plaintext = if (isOutgoing) {
-                        // Outgoing messages: try to decrypt, fallback stored as plaintext
-                        runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
-                            ?: item.ciphertext
+                        // F3: outgoing — prefer sender_ciphertext (encrypted to my own pubkey).
+                        // Falls back to recipient ciphertext (won't decrypt with my privkey,
+                        // but kept as last-resort placeholder).
+                        item.sender_ciphertext
+                            ?.let { runCatching { CryptoManager.decryptMessage(it, privKey) }.getOrNull() }
+                            ?: runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
+                            ?: "[не удалось расшифровать]"
                     } else {
                         runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
                             ?: "[не удалось расшифровать]"
@@ -644,14 +648,22 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     isE2E = true
                 ))
                 if (ttlSec > 0) scheduleTtlDelete(toUin, nowMs, ttlSec)
-                // Save to server for history persistence
+                // Save to server for history persistence (with F3 sender-copy for cross-device outbox).
                 val token = Prefs.getToken(ctx)
                 if (token.isNotEmpty()) {
+                    val myPub = Prefs.getPubKey(ctx)
+                    val senderCt = if (myPub.isNotEmpty()) {
+                        runCatching {
+                            val pub = CryptoManager.importPublicKey(myPub)
+                            CryptoManager.encryptMessage(payloadText, pub)
+                        }.getOrNull()
+                    } else null
                     runCatching {
                         api.saveSyncedMessage("Bearer $token", com.iromashka.network.SaveSyncedMessageRequest(
                             sender_uin = myUin,
                             receiver_uin = toUin,
                             ciphertext = ciphertext,
+                            sender_ciphertext = senderCt,
                             timestamp = System.currentTimeMillis()
                         ))
                     }
@@ -795,8 +807,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     val isOutgoing = item.sender_uin == myUin
 
                     val plaintext = if (isOutgoing) {
-                        runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
-                            ?: item.ciphertext
+                        // F3: prefer sender-copy ciphertext for outgoing.
+                        item.sender_ciphertext
+                            ?.let { runCatching { CryptoManager.decryptMessage(it, privKey) }.getOrNull() }
+                            ?: runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
+                            ?: "[не удалось расшифровать]"
                     } else {
                         runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
                             ?: "[не удалось расшифровать]"
