@@ -1,6 +1,7 @@
 package com.iromashka.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -12,9 +13,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.*
 import com.iromashka.ui.theme.LocalThemePalette
 import com.iromashka.viewmodel.AuthState
@@ -36,7 +42,9 @@ fun RegisterScreen(
     var pin2 by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var password2 by remember { mutableStateOf("") }
+    var consentChecked by remember { mutableStateOf(false) }
     val phone = paidPhone
+    val uriHandler = LocalUriHandler.current
 
     // Password validation
     val passwordValid = password.length >= 12 &&
@@ -183,13 +191,45 @@ fun RegisterScreen(
 
                     Spacer(Modifier.height(20.dp))
 
+                    // 152-ФЗ consent checkbox
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Checkbox(
+                            checked = consentChecked,
+                            onCheckedChange = { consentChecked = it },
+                            colors = CheckboxDefaults.colors(checkedColor = p.accent)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        val consentText = buildAnnotatedString {
+                            append("Я ознакомился(-лась) с ")
+                            withStyle(SpanStyle(color = p.accent, textDecoration = TextDecoration.Underline)) {
+                                append("Политикой обработки персональных данных")
+                            }
+                            append(" и даю согласие на обработку моих персональных данных (152-ФЗ)")
+                        }
+                        Text(
+                            text = consentText,
+                            fontSize = 12.sp,
+                            color = p.textSecondary,
+                            modifier = Modifier
+                                .padding(top = 12.dp)
+                                .clickable {
+                                    uriHandler.openUri("https://iromashka.ru/privacy-policy.html")
+                                }
+                        )
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+
                     Button(
                         onClick = {
-                            if (nickname.isNotBlank() && pin.length >= 6 && pin == pin2 && passwordValid && passwordsMatch)
+                            if (nickname.isNotBlank() && pin.length >= 6 && pin == pin2 && passwordValid && passwordsMatch && consentChecked)
                                 viewModel.register(nickname, pin, password, phone)
                         },
                         modifier = Modifier.fillMaxWidth().height(48.dp),
-                        enabled = nickname.isNotBlank() && pin.length >= 6 && pin == pin2 && passwordValid && passwordsMatch,
+                        enabled = nickname.isNotBlank() && pin.length >= 6 && pin == pin2 && passwordValid && passwordsMatch && consentChecked,
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = p.accent)
                     ) {
