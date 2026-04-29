@@ -95,7 +95,7 @@ object BiometricKeystore {
             .build()
         val prompt = BiometricPrompt(
             activity,
-            { activity.runOnUiThread(it) } as java.util.concurrent.Executor,
+            java.util.concurrent.Executor { r -> activity.runOnUiThread(r) },
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     val c = result.cryptoObject?.cipher ?: return onFail("no cipher")
@@ -138,7 +138,7 @@ object BiometricKeystore {
             .build()
         val prompt = BiometricPrompt(
             activity,
-            { activity.runOnUiThread(it) } as java.util.concurrent.Executor,
+            java.util.concurrent.Executor { r -> activity.runOnUiThread(r) },
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     val c = result.cryptoObject?.cipher ?: return onFail("no cipher")
