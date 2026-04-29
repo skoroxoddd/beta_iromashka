@@ -17,18 +17,39 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.*
 import com.iromashka.R
+import com.iromashka.crypto.BiometricKeystore
 import com.iromashka.storage.Prefs
 import com.iromashka.ui.theme.LocalThemePalette
+import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.delay
 
 @Composable
-fun PinUnlockScreen(onUnlock: (String) -> Boolean, onForgotPin: () -> Unit = {}) {
+fun PinUnlockScreen(
+    onUnlock: (String) -> Boolean,
+    onForgotPin: () -> Unit = {},
+    onBiometricUnlock: ((String, String) -> Unit)? = null,
+) {
     val p = LocalThemePalette.current
     val ctx = LocalContext.current
     var pin by remember { mutableStateOf("") }
     var isError by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var remainingSecs by remember { mutableStateOf(Prefs.getPinLockoutRemainingSecs(ctx)) }
+
+    val biometricAvailable = remember(ctx) { BiometricKeystore.canAuthenticate(ctx) }
+    val biometricEnabled = remember(ctx) { Prefs.isBiometricEnabled(ctx) }
+    val hasUnlockToken = remember(ctx) {
+        val w = Prefs.getUnlockTokenWrapped(ctx)
+        w.isNotEmpty() && !w.startsWith("PLAIN:")
+    }
+    val showBiometric = biometricAvailable && biometricEnabled && hasUnlockToken && onBiometricUnlock != null
+
+    LaunchedEffect(Unit) {
+        if (showBiometric) {
+            // Auto-prompt on first composition for snappier UX
+            triggerBiometric(ctx, onBiometricUnlock!!)
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (remainingSecs > 0) { delay(1000L); remainingSecs = Prefs.getPinLockoutRemainingSecs(ctx) }
@@ -139,10 +160,44 @@ fun PinUnlockScreen(onUnlock: (String) -> Boolean, onForgotPin: () -> Unit = {})
                     TextButton(onClick = onForgotPin, modifier = Modifier.fillMaxWidth()) {
                         Text("Забыл PIN — восстановить по фразе", color = p.accent, fontSize = 13.sp)
                     }
+
+                    if (showBiometric) {
+                        Spacer(Modifier.height(4.dp))
+                        OutlinedButton(
+                            onClick = { triggerBiometric(ctx, onBiometricUnlock!!) },
+                            modifier = Modifier.fillMaxWidth().height(44.dp),
+                            shape = RoundedCornerShape(10.dp),
+                        ) {
+                            Text("🔓 Войти по биометрии", color = p.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+private fun triggerBiometric(ctx: android.content.Context, onUnlock: (String, String) -> Unit) {
+    val activity = ctx as? FragmentActivity ?: return
+    val wrapped = Prefs.getUnlockTokenWrapped(ctx)
+    val iv = Prefs.getUnlockTokenIv(ctx)
+    if (wrapped.isEmpty() || iv.isEmpty() || wrapped.startsWith("PLAIN:")) return
+    BiometricKeystore.unwrapWithBiometric(
+        activity = activity,
+        ciphertextB64 = wrapped,
+        ivB64 = iv,
+        title = "АйРомашка",
+        subtitle = "Подтвердите личность",
+        onSuccess = { plain ->
+            val s = String(plain, Charsets.UTF_8)
+            val nl = s.indexOf('\n')
+            if (nl < 0) return@unwrapWithBiometric
+            val token = s.substring(0, nl)
+            val pin = s.substring(nl + 1)
+            onUnlock(token, pin)
+        },
+        onFail = { /* user cancelled or auth failed; PIN form stays visible */ }
+    )
 }
 
 private fun formatTime(secs: Int): String = String.format("%02d:%02d", secs / 60, secs % 60)

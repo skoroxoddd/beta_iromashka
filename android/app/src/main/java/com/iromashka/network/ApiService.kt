@@ -133,6 +133,22 @@ object ApiService {
             @retrofit2.http.Part file: okhttp3.MultipartBody.Part,
             @retrofit2.http.Part("expected") expected: okhttp3.RequestBody
         ): UploadResponse
+
+        // ── G2: biometric / fast-unlock ──────────────────────────────────
+        @POST("unlock/issue")
+        suspend fun unlockIssue(
+            @Header("Authorization") token: String,
+            @Body body: UnlockIssueRequest
+        ): UnlockIssueResponse
+
+        @POST("unlock/verify")
+        suspend fun unlockVerify(@Body body: UnlockVerifyRequest): LoginResponse
+
+        @POST("unlock/revoke")
+        suspend fun unlockRevoke(
+            @Header("Authorization") token: String,
+            @Body body: UnlockRevokeRequest
+        ): okhttp3.ResponseBody
     }
 
     private val client = OkHttpClient.Builder()
@@ -249,3 +265,9 @@ data class RecoveryCompleteRequest(
     val new_encrypted_key: String,
     val new_salt: String
 )
+
+// ── G2: unlock DTOs ───────────────────────────────────────────────────
+data class UnlockIssueRequest(val device_id: String)
+data class UnlockIssueResponse(val unlock_token: String, val expires_at: Long)
+data class UnlockVerifyRequest(val uin: Long, val device_id: String, val unlock_token: String)
+data class UnlockRevokeRequest(val device_id: String)

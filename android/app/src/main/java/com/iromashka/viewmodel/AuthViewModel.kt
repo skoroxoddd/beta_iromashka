@@ -184,6 +184,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 registerDevice(resp.token, Prefs.getPubKey(ctx))
+                requestUnlockToken(resp.token)
                 _state.value = AuthState.Success(resp.uin)
             }.onFailure { e ->
                 android.util.Log.w("AuthVM", "Login failed UIN $uin: ${e.message}", e)
@@ -216,8 +217,69 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun logout() {
-        Prefs.clear(ctx)
-        _state.value = AuthState.Idle
+        viewModelScope.launch {
+            // best-effort revoke server-side unlock_token before wipe
+            runCatching {
+                val token = Prefs.getToken(ctx)
+                val deviceId = Prefs.getDeviceId(ctx)
+                if (token.isNotEmpty()) {
+                    api.unlockRevoke("Bearer $token",
+                        com.iromashka.network.UnlockRevokeRequest(device_id = deviceId))
+                }
+            }
+            com.iromashka.crypto.BiometricKeystore.deleteKey()
+            Prefs.clearUnlockToken(ctx)
+            Prefs.setBiometricEnabled(ctx, false)
+            Prefs.clear(ctx)
+            _state.value = AuthState.Idle
+        }
+    }
+
+    /** G2: ask server for a 7-day unlock_token. Stored in plain Prefs until biometric opt-in. */
+    private suspend fun requestUnlockToken(jwt: String) {
+        runCatching {
+            val deviceId = Prefs.getDeviceId(ctx)
+            val resp = api.unlockIssue("Bearer $jwt",
+                com.iromashka.network.UnlockIssueRequest(device_id = deviceId))
+            // Stash plaintext temporarily — UI layer prompts user to enable biometric and
+            // re-saves it Keystore-wrapped via BiometricKeystore.wrapWithBiometric().
+            // We record only expires_at here; the token itself goes through the UI flow.
+            Prefs.setUnlockToken(ctx,
+                wrapped = "PLAIN:" + resp.unlock_token,
+                iv = "",
+                expiresAt = resp.expires_at)
+            android.util.Log.i("AuthVM", "Unlock token issued, expires_at=${resp.expires_at}")
+        }.onFailure {
+            android.util.Log.w("AuthVM", "Unlock token issue failed: ${it.message}")
+        }
+    }
+
+    /**
+     * Try to fast-unlock using saved unlock_token (after biometric, if enabled, or plain if not).
+     * Returns true on success (Prefs updated with new JWT), false otherwise.
+     */
+    suspend fun tryFastUnlockWithToken(unlockToken: String): Boolean {
+        val uin = Prefs.getUin(ctx)
+        if (uin <= 0) return false
+        val deviceId = Prefs.getDeviceId(ctx)
+        return runCatching {
+            val resp = api.unlockVerify(com.iromashka.network.UnlockVerifyRequest(
+                uin = uin, device_id = deviceId, unlock_token = unlockToken
+            ))
+            Prefs.updateToken(ctx, resp.token)
+            Prefs.updateRefreshToken(ctx, resp.refresh_token)
+            Prefs.updateTokenTimestamp(ctx, System.currentTimeMillis())
+            true
+        }.getOrElse {
+            android.util.Log.w("AuthVM", "Fast unlock verify failed: ${it.message}")
+            // 401 → drop saved token, force fresh login
+            if (it.message?.contains("401") == true || it.message?.contains("403") == true) {
+                Prefs.clearUnlockToken(ctx)
+                com.iromashka.crypto.BiometricKeystore.deleteKey()
+                Prefs.setBiometricEnabled(ctx, false)
+            }
+            false
+        }
     }
 
     fun resetState() {

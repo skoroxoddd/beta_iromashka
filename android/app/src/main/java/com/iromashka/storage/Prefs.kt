@@ -100,6 +100,42 @@ object Prefs {
         securePrefs(ctx).edit().clear().apply()
     }
 
+    // ── G2: biometric fast-unlock ─────────────────────────────────────────
+    /** Stored AES-GCM ciphertext of the unlock_token (Keystore-protected) */
+    fun getUnlockTokenWrapped(ctx: Context): String =
+        securePrefs(ctx).getString("unlock_wrapped", "") ?: ""
+    /** IV used for unlock_token AES-GCM (Base64) */
+    fun getUnlockTokenIv(ctx: Context): String =
+        securePrefs(ctx).getString("unlock_iv", "") ?: ""
+    /** Server-issued expires_at in unix seconds */
+    fun getUnlockTokenExpires(ctx: Context): Long =
+        securePrefs(ctx).getLong("unlock_expires", 0L)
+    fun setUnlockToken(ctx: Context, wrapped: String, iv: String, expiresAt: Long) {
+        securePrefs(ctx).edit()
+            .putString("unlock_wrapped", wrapped)
+            .putString("unlock_iv", iv)
+            .putLong("unlock_expires", expiresAt)
+            .apply()
+    }
+    fun clearUnlockToken(ctx: Context) {
+        securePrefs(ctx).edit()
+            .remove("unlock_wrapped")
+            .remove("unlock_iv")
+            .remove("unlock_expires")
+            .apply()
+    }
+    fun isBiometricEnabled(ctx: Context): Boolean =
+        simplePrefs(ctx).getBoolean("biometric_enabled", false)
+    fun setBiometricEnabled(ctx: Context, enabled: Boolean) {
+        simplePrefs(ctx).edit().putBoolean("biometric_enabled", enabled).apply()
+    }
+    /** True if user already saw and answered the biometric opt-in dialog */
+    fun isBiometricPromptAsked(ctx: Context): Boolean =
+        simplePrefs(ctx).getBoolean("biometric_prompted", false)
+    fun setBiometricPromptAsked(ctx: Context) {
+        simplePrefs(ctx).edit().putBoolean("biometric_prompted", true).apply()
+    }
+
     // Theme
     fun getTheme(ctx: Context): String = simplePrefs(ctx).getString("theme", "Light") ?: "Light"
     fun setTheme(ctx: Context, theme: String) {

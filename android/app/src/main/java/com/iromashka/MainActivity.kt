@@ -12,6 +12,7 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.navigation.*
 import androidx.navigation.compose.*
 import com.iromashka.storage.Prefs
@@ -25,7 +26,7 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private val authVm: AuthViewModel by viewModels()
     private val chatVm: ChatViewModel by viewModels()
@@ -110,9 +111,14 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                 viewModel = authVm,
                 onSuccess = { _, pin ->
                     sessionPin = pin
+                    val activity = ctx as? FragmentActivity
                     // Init E2E keys and start WS right after login
                     chatVm.init(pin) { ok ->
-                        if (ok) chatVm.connectWs()
+                        if (ok) {
+                            chatVm.connectWs()
+                            // Offer biometric enrollment if available and not yet asked
+                            if (activity != null) maybeOfferBiometricEnroll(activity, ctx, pin)
+                        }
                     }
                     navController.navigate("contacts") {
                         popUpTo("login") { inclusive = true }
@@ -240,6 +246,21 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
         composable("pin_unlock") {
             PinUnlockScreen(
                 onForgotPin = { navController.navigate("recovery_restore") },
+                onBiometricUnlock = { unlockToken, pin ->
+                    MainScope().launch {
+                        val ok = authVm.tryFastUnlockWithToken(unlockToken)
+                        if (ok) {
+                            chatVm.init(pin) { initOk ->
+                                if (initOk) {
+                                    chatVm.connectWs()
+                                    navController.navigate("contacts") {
+                                        popUpTo("pin_unlock") { inclusive = true }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
                 onUnlock = { pin ->
                     val wrappedPriv = Prefs.getWrappedPriv(ctx)
                     if (wrappedPriv.isNotEmpty()) {
@@ -355,4 +376,41 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
             )
         }
     }
+}
+
+/**
+ * G2: после первого PIN-логина — предложить включить биометрию.
+ * Если в Prefs уже лежит "PLAIN:<token>", оборачиваем его Keystore-ключом
+ * через BiometricPrompt и сохраняем cipher+iv. Дальше при холодном старте
+ * PinUnlockScreen покажет кнопку "Войти по биометрии" и unlock_token будет
+ * получен только после успешной аутентификации.
+ */
+private fun maybeOfferBiometricEnroll(activity: FragmentActivity?, ctx: android.content.Context, pin: String) {
+    if (activity == null) return
+    if (Prefs.isBiometricEnabled(ctx)) return
+    if (Prefs.isBiometricPromptAsked(ctx)) return
+    if (!com.iromashka.crypto.BiometricKeystore.canAuthenticate(ctx)) return
+    val stored = Prefs.getUnlockTokenWrapped(ctx)
+    if (!stored.startsWith("PLAIN:")) return
+    val plainToken = stored.removePrefix("PLAIN:")
+    val expires = Prefs.getUnlockTokenExpires(ctx)
+
+    Prefs.setBiometricPromptAsked(ctx)
+
+    // Wrap "<unlock_token>\n<pin>" together — biometric unlocks both at once.
+    val payload = (plainToken + "\n" + pin).toByteArray(Charsets.UTF_8)
+    com.iromashka.crypto.BiometricKeystore.wrapWithBiometric(
+        activity = activity,
+        plaintext = payload,
+        title = "АйРомашка",
+        subtitle = "Включить вход по биометрии?",
+        onSuccess = { ct, iv ->
+            Prefs.setUnlockToken(ctx, wrapped = ct, iv = iv, expiresAt = expires)
+            Prefs.setBiometricEnabled(ctx, true)
+            android.widget.Toast.makeText(ctx, "Биометрия включена", android.widget.Toast.LENGTH_SHORT).show()
+        },
+        onFail = { /* user declined — keep PLAIN token, will retry at next session */
+            Prefs.setBiometricEnabled(ctx, false)
+        }
+    )
 }
