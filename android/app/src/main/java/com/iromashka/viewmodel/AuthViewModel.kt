@@ -128,7 +128,9 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 if (resp.needs_password_migration) {
                     Prefs.updateToken(ctx, resp.token)
                     Prefs.updateRefreshToken(ctx, resp.refresh_token)
+                    Prefs.updateTokenTimestamp(ctx, System.currentTimeMillis())
                     Prefs.updateUin(ctx, resp.uin)
+                    android.util.Log.i("AuthVM", "Login OK (needs_password_migration) UIN $uin")
                     _state.value = AuthState.NeedsPasswordMigration(resp.uin, resp.token)
                     return@launch
                 }
@@ -182,8 +184,15 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
 
                 registerDevice(resp.token, Prefs.getPubKey(ctx))
                 _state.value = AuthState.Success(resp.uin)
-            }.onFailure {
-                _state.value = AuthState.Error(it.message ?: "Login failed")
+            }.onFailure { e ->
+                android.util.Log.w("AuthVM", "Login failed UIN $uin: ${e.message}", e)
+                val msg = when {
+                    e.message?.contains("401") == true -> "Неверный UIN, PIN или пароль"
+                    e.message?.contains("403") == true -> "Аккаунт заблокирован"
+                    e.message?.contains("429") == true -> "Слишком много попыток, подождите"
+                    else -> e.message ?: "Login failed"
+                }
+                _state.value = AuthState.Error(msg)
             }
         }
     }

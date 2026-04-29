@@ -12,8 +12,8 @@ android {
         applicationId = "com.iromashka"
         minSdk = 26
         targetSdk = 34
-        versionCode = 26
-        versionName = "1.5.5"
+        versionCode = 27
+        versionName = "1.5.6"
     }
 
     signingConfigs {
