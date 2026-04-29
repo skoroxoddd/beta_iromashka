@@ -42,8 +42,10 @@ import androidx.core.content.ContextCompat
 import com.iromashka.media.MediaUtils
 import java.io.File
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
     myUin: Long,
@@ -156,9 +158,12 @@ fun ChatScreen(
         }
     }
 
-    // Force scroll after sending own message
+    // Force scroll after sending own message — wait for messages flow to update
     LaunchedEffect(scrollToBottom) {
-        if (scrollToBottom > 0L && messages.isNotEmpty()) {
+        if (scrollToBottom > 0L) {
+            snapshotFlow { messages.size }
+                .filter { it > 0 }
+                .first()
             listState.animateScrollToItem(messages.size - 1)
         }
     }
@@ -239,7 +244,7 @@ fun ChatScreen(
                 var showEdit by remember { mutableStateOf(false) }
                 Box(modifier = Modifier
                     .fillMaxWidth()
-                    .animateItem()) {
+                    .animateItemPlacement()) {
                     MessageBubble(msg, isOutgoing, palette,
                         onLongPress = { if (isOutgoing) showMenu = true },
                     )
