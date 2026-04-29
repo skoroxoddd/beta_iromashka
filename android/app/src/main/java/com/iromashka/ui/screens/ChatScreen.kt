@@ -40,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.core.content.ContextCompat
 import com.iromashka.media.MediaUtils
 import java.io.File
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,14 +97,18 @@ fun ChatScreen(
         }
     }
 
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
     fun stopAndSendAudio() {
         runCatching {
             recorder?.stop(); recorder?.release(); recorder = null
             recording = false
             val f = recFile ?: return
-            val tag = MediaUtils.audioFileToHtmlTag(f) ?: return
-            viewModel.sendMessage(toUin, tag)
-            playSound(ctx, "outgoing")
+            scope.launch {
+                val tag = MediaUtils.audioFileToHtmlTag(ctx, f) ?: return@launch
+                viewModel.sendMessage(toUin, tag)
+                playSound(ctx, "outgoing")
+            }
         }.onFailure { android.util.Log.e("ChatScreen", "rec stop ${it.message}") }
     }
 
@@ -113,10 +118,12 @@ fun ChatScreen(
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
-            val tag = MediaUtils.imageUriToHtmlTag(ctx, uri)
-            if (tag != null) {
-                viewModel.sendMessage(toUin, tag)
-                playSound(ctx, "outgoing")
+            scope.launch {
+                val tag = MediaUtils.imageUriToHtmlTag(ctx, uri)
+                if (tag != null) {
+                    viewModel.sendMessage(toUin, tag)
+                    playSound(ctx, "outgoing")
+                }
             }
         }
     }

@@ -118,6 +118,14 @@ object ApiService {
 
         @GET("payment/status")
         suspend fun paymentStatus(@retrofit2.http.Query("phone") phone: String): PaymentStatusResponse
+
+        @retrofit2.http.Multipart
+        @POST("upload")
+        suspend fun uploadBlob(
+            @Header("Authorization") token: String,
+            @retrofit2.http.Part file: okhttp3.MultipartBody.Part,
+            @retrofit2.http.Part("expected") expected: okhttp3.RequestBody
+        ): UploadResponse
     }
 
     private val client = OkHttpClient.Builder()
@@ -159,6 +167,7 @@ data class SyncedMessageItem(
     val sender_uin: Long,
     val receiver_uin: Long,
     val ciphertext: String,
+    val sender_ciphertext: String? = null,
     val timestamp: Long
 )
 
@@ -166,7 +175,15 @@ data class SaveSyncedMessageRequest(
     val sender_uin: Long,
     val receiver_uin: Long,
     val ciphertext: String,
+    val sender_ciphertext: String? = null,
     val timestamp: Long
+)
+
+data class UploadResponse(
+    val url: String,
+    val mime: String,
+    val size: Long,
+    val name: String
 )
 
 data class SaveKeyRequest(
