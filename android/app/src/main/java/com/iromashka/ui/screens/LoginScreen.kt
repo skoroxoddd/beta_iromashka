@@ -110,6 +110,7 @@ fun LoginScreen(
 
                     Spacer(Modifier.height(12.dp))
 
+                    val pinValid = pinInput.length >= 6
                     OutlinedTextField(
                         value = pinInput,
                         onValueChange = { if (it.length <= 6) pinInput = it.filter { c -> c.isDigit() } },
@@ -120,8 +121,8 @@ fun LoginScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = p.accent,
-                            unfocusedBorderColor = p.divider,
+                            focusedBorderColor = if (pinValid) p.accent else p.divider,
+                            unfocusedBorderColor = if (pinValid) p.accent else p.divider,
                             focusedTextColor = p.textPrimary,
                             unfocusedTextColor = p.textPrimary,
                             unfocusedContainerColor = p.inputBg,
@@ -131,6 +132,7 @@ fun LoginScreen(
 
                     Spacer(Modifier.height(12.dp))
 
+                    val passwordValid = passwordInput.length >= 12
                     OutlinedTextField(
                         value = passwordInput,
                         onValueChange = { passwordInput = it },
@@ -140,8 +142,8 @@ fun LoginScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = p.accent,
-                            unfocusedBorderColor = p.divider,
+                            focusedBorderColor = if (passwordValid) p.accent else p.divider,
+                            unfocusedBorderColor = if (passwordValid) p.accent else p.divider,
                             focusedTextColor = p.textPrimary,
                             unfocusedTextColor = p.textPrimary,
                             unfocusedContainerColor = p.inputBg,

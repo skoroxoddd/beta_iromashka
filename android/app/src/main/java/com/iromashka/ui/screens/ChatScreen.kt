@@ -161,7 +161,7 @@ fun ChatScreen(
         if (messages.size > lastCount) {
             val newMsgs = messages.drop(lastCount)
             val hasIncoming = newMsgs.any { !it.isOutgoing }
-            if (!hasIncoming) playSound(ctx, "incoming")
+            if (hasIncoming) playSound(ctx, "incoming")
         }
         lastCount = messages.size
     }
@@ -171,6 +171,7 @@ fun ChatScreen(
             .fillMaxSize()
             .background(palette.chatBg)
             .windowInsetsPadding(WindowInsets.systemBars)
+            .imePadding()
     ) {
         // ── Title bar ───────────────────────────────────
         Box(

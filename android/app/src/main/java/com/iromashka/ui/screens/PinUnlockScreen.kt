@@ -64,6 +64,7 @@ fun PinUnlockScreen(onUnlock: (String) -> Boolean, onForgotPin: () -> Unit = {})
             ) {
                 Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
 
+                    val pinValid = pin.length >= 6
                     OutlinedTextField(
                         value = pin,
                         onValueChange = {
@@ -81,8 +82,8 @@ fun PinUnlockScreen(onUnlock: (String) -> Boolean, onForgotPin: () -> Unit = {})
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = if (isError) p.errorRed else p.accent,
-                            unfocusedBorderColor = if (isError) p.errorRed else p.divider,
+                            focusedBorderColor = if (isError) p.errorRed else if (pinValid) p.accent else p.divider,
+                            unfocusedBorderColor = if (isError) p.errorRed else if (pinValid) p.accent else p.divider,
                             focusedTextColor = p.textPrimary, unfocusedTextColor = p.textPrimary,
                             unfocusedContainerColor = p.inputBg, focusedContainerColor = p.inputBg,
                         )

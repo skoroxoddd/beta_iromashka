@@ -112,6 +112,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = AuthState.Loading
             runCatching {
                 val wrappedPriv = Prefs.getWrappedPriv(ctx)
+                val trimmedPassword = password?.trim()?.ifEmpty { null }
 
                 // Local key exists — verify PIN before hitting server
                 if (wrappedPriv.isNotEmpty()) {
@@ -122,7 +123,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 val pubKey = Prefs.getPubKey(ctx)
-                val resp = api.login(LoginRequest(uin, pin, password, pubKey.ifEmpty { null }))
+                val resp = api.login(LoginRequest(uin, pin, trimmedPassword, pubKey.ifEmpty { null }))
 
                 // Check if needs password migration
                 if (resp.needs_password_migration) {

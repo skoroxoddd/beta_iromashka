@@ -98,6 +98,7 @@ fun RegisterScreen(
 
                     Spacer(Modifier.height(12.dp))
 
+                    val pinValid = pin.length >= 6
                     OutlinedTextField(
                         value = pin,
                         onValueChange = { if (it.length <= 6) pin = it.filter { c -> c.isDigit() } },
@@ -107,7 +108,8 @@ fun RegisterScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         shape = RoundedCornerShape(10.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = p.accent, unfocusedBorderColor = p.divider,
+                            focusedBorderColor = if (pinValid) p.accent else p.divider,
+                            unfocusedBorderColor = if (pinValid) p.accent else p.divider,
                             focusedTextColor = p.textPrimary, unfocusedTextColor = p.textPrimary,
                             unfocusedContainerColor = p.inputBg, focusedContainerColor = p.inputBg,
                         )
@@ -146,7 +148,8 @@ fun RegisterScreen(
                         visualTransformation = PasswordVisualTransformation(),
                         shape = RoundedCornerShape(10.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = p.accent, unfocusedBorderColor = p.divider,
+                            focusedBorderColor = if (passwordValid) p.accent else p.divider,
+                            unfocusedBorderColor = if (passwordValid) p.accent else p.divider,
                             focusedTextColor = p.textPrimary, unfocusedTextColor = p.textPrimary,
                             unfocusedContainerColor = p.inputBg, focusedContainerColor = p.inputBg,
                         )

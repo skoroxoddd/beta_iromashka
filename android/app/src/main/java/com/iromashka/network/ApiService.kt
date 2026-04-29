@@ -133,6 +133,7 @@ object ApiService {
         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .pingInterval(25, java.util.concurrent.TimeUnit.SECONDS)
         .build()
 
     val okHttpClient: OkHttpClient get() = client

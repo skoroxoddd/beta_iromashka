@@ -154,10 +154,7 @@ class WsClient(
     // Session key received in auth_ok (hex-decoded)
     @Volatile private var sessionKey: ByteArray? = null
 
-    private val client = okhttp3.OkHttpClient.Builder()
-        .pingInterval(25, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
-        .build()
+    private val client = ApiService.okHttpClient
 
     fun connect() {
         stopped = false
@@ -395,6 +392,8 @@ class WsClient(
             return
         }
         reconnectJob?.cancel()
+        ws?.close(1000, "reconnecting")
+        ws = null
         reconnectJob = scope.launch {
             val delay = minOf(1000L * (1L shl retryCount), 30_000L)
             Log.d(TAG, "Reconnect in ${delay}ms (attempt ${retryCount + 1})")

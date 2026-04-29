@@ -52,6 +52,8 @@ fun GroupChatScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(palette.chatBg)
+            .windowInsetsPadding(WindowInsets.systemBars)
+            .imePadding()
     ) {
         // ── Title bar ───────────────────────────────────
         Box(

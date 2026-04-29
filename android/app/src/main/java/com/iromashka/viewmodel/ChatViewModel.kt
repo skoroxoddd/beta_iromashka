@@ -76,6 +76,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private var _currentChatUin: Long = -1
     private val _messagesState = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messagesState: StateFlow<List<ChatMessage>> = _messagesState
+    private var chatCollectionJob: Job? = null
 
     // Market
     var marketUin: Long? by mutableStateOf(null)
@@ -101,24 +102,27 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openChat(chatUin: Long) {
+        chatCollectionJob?.cancel()
         _currentChatUin = chatUin
-        viewModelScope.launch {
+        chatCollectionJob = viewModelScope.launch {
             msgDao.getMessages(chatUin).collect { list ->
-                _messagesState.value = list.map { e ->
-                    ChatMessage(
-                        messageId = e.id,
-                        senderUin = e.senderUin,
-                        receiverUin = e.receiverUin,
-                        text = if (e.isEdited) e.text + "  · изм." else e.text,
-                        timestamp = e.timestamp,
-                        isOutgoing = e.isOutgoing,
-                        isE2E = e.isE2E,
-                        status = when {
-                            !e.isOutgoing -> null
-                            e.isRead -> MessageStatus.Read
-                            else -> MessageStatus.Sent
-                        }
-                    )
+                if (_currentChatUin == chatUin) {
+                    _messagesState.value = list.map { e ->
+                        ChatMessage(
+                            messageId = e.id,
+                            senderUin = e.senderUin,
+                            receiverUin = e.receiverUin,
+                            text = if (e.isEdited) e.text + "  · изм." else e.text,
+                            timestamp = e.timestamp,
+                            isOutgoing = e.isOutgoing,
+                            isE2E = e.isE2E,
+                            status = when {
+                                !e.isOutgoing -> null
+                                e.isRead -> MessageStatus.Read
+                                else -> MessageStatus.Sent
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -647,6 +651,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     isOutgoing = true,
                     isE2E = true
                 ))
+                android.util.Log.d("ChatVM", "Inserted local msg to $toUin at $nowMs")
                 if (ttlSec > 0) scheduleTtlDelete(toUin, nowMs, ttlSec)
                 // Save to server for history persistence (with F3 sender-copy for cross-device outbox).
                 val token = Prefs.getToken(ctx)
@@ -689,6 +694,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 Prefs.updatePubKey(ctx, "")
                 myPrivKey = null
                 pubkeyCache.clear()
+                // Clear all messages since they can't be decrypted with new key
+                msgDao.deleteAll()
+                grpDao.clearAll()
                 disconnectWs()
                 onResult(true, null)
             }.onFailure { e ->

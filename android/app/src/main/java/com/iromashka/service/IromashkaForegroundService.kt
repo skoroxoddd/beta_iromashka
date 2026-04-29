@@ -8,12 +8,20 @@ import androidx.core.app.*
 import com.iromashka.MainActivity
 import com.iromashka.crypto.CryptoManager
 import com.iromashka.model.WsAuthPacket
+import com.iromashka.model.WsEnvelope
 import com.iromashka.network.ApiService
 import com.iromashka.storage.Prefs
 import com.google.gson.Gson
 import kotlinx.coroutines.*
 import okhttp3.*
+import okio.ByteString
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.TimeUnit
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import com.iromashka.network.ChaCha20
 
 class IromashkaForegroundService : Service() {
 
@@ -36,6 +44,7 @@ class IromashkaForegroundService : Service() {
     private var token: String = ""
     private var reconnectCount = 0
     private var wakeLock: PowerManager.WakeLock? = null
+    @Volatile private var sessionKey: ByteArray? = null
 
     private val wakeLockTimeoutMs = 30 * 60 * 1000L // 30 minutes
     private val wakeLockHandler = Handler(Looper.getMainLooper())
@@ -90,9 +99,10 @@ class IromashkaForegroundService : Service() {
     }
 
     private fun connectWebSocket() {
+        sessionKey = null
         val client = OkHttpClient.Builder()
-            .pingInterval(30, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .pingInterval(30, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.MILLISECONDS)
             .build()
         val request = Request.Builder().url(ApiService.WS_URL).build()
         ws = client.newWebSocket(request, object : WebSocketListener() {
@@ -101,21 +111,47 @@ class IromashkaForegroundService : Service() {
                 webSocket.send(gson.toJson(WsAuthPacket(myUin, token)))
             }
             override fun onMessage(webSocket: WebSocket, text: String) {
-                val env = tryParseEnvelope(text)
-                if (env != null && myPrivKey != null) {
-                    val pt = runCatching { CryptoManager.decryptMessage(env.ciphertext, myPrivKey!!) }.getOrNull() ?: ""
-                    if (pt.isNotEmpty()) showMsgNotif(env.sender_uin, pt)
-                }
+                handleText(text)
+            }
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                val raw = bytes.toByteArray()
+                val decoded = FgTransport.decode(raw, sessionKey)
+                if (decoded == null) return
+                val text = runCatching { decoded.decodeToString() }.getOrNull() ?: return
+                handleText(text)
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                sessionKey = null
                 reconnectCount++
-                Handler(android.os.Looper.getMainLooper()).postDelayed({ connectWebSocket() }, 5000L.coerceAtMost(30000L * reconnectCount))
+                Handler(Looper.getMainLooper()).postDelayed({ connectWebSocket() }, 5000L.coerceAtMost(30000L * reconnectCount))
+            }
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                sessionKey = null
+                webSocket.close(1000, null)
             }
         })
     }
 
-    private fun tryParseEnvelope(text: String): com.iromashka.model.WsEnvelope? =
-        runCatching { gson.fromJson(text, com.iromashka.model.WsEnvelope::class.java) }.getOrNull()
+    private fun handleText(text: String) {
+        runCatching {
+            val obj = org.json.JSONObject(text)
+            if (obj.optString("sys") == "auth_ok") {
+                val skHex = obj.optString("sk")
+                if (skHex.isNotEmpty()) {
+                    sessionKey = FgTransport.hexToBytes(skHex)
+                }
+                return
+            }
+        }
+        val env = tryParseEnvelope(text)
+        if (env != null && myPrivKey != null) {
+            val pt = runCatching { CryptoManager.decryptMessage(env.ciphertext, myPrivKey!!) }.getOrNull() ?: ""
+            if (pt.isNotEmpty()) showMsgNotif(env.sender_uin, pt)
+        }
+    }
+
+    private fun tryParseEnvelope(text: String): WsEnvelope? =
+        runCatching { gson.fromJson(text, WsEnvelope::class.java) }.getOrNull()?.takeIf { it.sender_uin != 0L && it.ciphertext.isNotEmpty() }
 
     private fun showMsgNotif(fromUin: Long, text: String) {
         val ch = NotificationCompat.Builder(this, MSG_CHANNEL_ID)
@@ -137,8 +173,61 @@ class IromashkaForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        sessionKey = null
         ws?.close(1000, null)
         wakeLockHandler.removeCallbacks(wakeLockRenewRunnable)
         runCatching { wakeLock?.let { if (it.isHeld) it.release() } }
+    }
+}
+
+private object FgTransport {
+    fun decode(data: ByteArray, sessionKey: ByteArray?): ByteArray? {
+        if (data.size < 3) return null
+        return when (data[2]) {
+            0x04.toByte(), 0x03.toByte() -> decodeV4(data, sessionKey ?: return null)
+            0x02.toByte() -> decodeV2(data)
+            0x01.toByte() -> decodeV1(data)
+            else -> null
+        }
+    }
+
+    private fun decodeV4(data: ByteArray, key: ByteArray): ByteArray? {
+        if (data.size < 15) return null
+        val nonce = data.sliceArray(3..14)
+        val ciphertext = data.sliceArray(15 until data.size)
+        return chacha20Crypt(key, nonce, ciphertext)
+    }
+
+    private fun decodeV2(data: ByteArray): ByteArray? {
+        if (data.size < 8) return null
+        val xorKey = data[3].toInt() and 0xFF
+        val len = ByteBuffer.wrap(data, 4, 4).order(ByteOrder.LITTLE_ENDIAN).int
+        if (len < 0 || len > 2 * 1024 * 1024 || data.size < 8 + len) return null
+        val payload = data.sliceArray(8 until 8 + len)
+        return ByteArray(len) { i -> (payload[i].toInt() xor ((xorKey + i) and 0xFF)).toByte() }
+    }
+
+    private fun decodeV1(data: ByteArray): ByteArray? {
+        if (data.size < 7) return null
+        val len = ByteBuffer.wrap(data, 3, 4).order(ByteOrder.LITTLE_ENDIAN).int
+        if (len < 0 || len > 2 * 1024 * 1024 || data.size < 7 + len) return null
+        return data.sliceArray(7 until 7 + len)
+    }
+
+    private fun chacha20Crypt(key: ByteArray, nonce: ByteArray, data: ByteArray): ByteArray? = runCatching {
+        if (Build.VERSION.SDK_INT >= 28) {
+            val cipher = Cipher.getInstance("ChaCha20")
+            cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "ChaCha20"), IvParameterSpec(nonce))
+            cipher.doFinal(data)
+        } else {
+            ChaCha20.crypt(key, nonce, data)
+        }
+    }.getOrNull()
+
+    fun hexToBytes(hex: String): ByteArray? {
+        if (hex.length % 2 != 0) return null
+        return runCatching {
+            ByteArray(hex.length / 2) { i -> hex.substring(i * 2, i * 2 + 2).toInt(16).toByte() }
+        }.getOrNull()
     }
 }

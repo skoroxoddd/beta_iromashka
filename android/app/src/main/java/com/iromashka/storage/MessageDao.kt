@@ -6,8 +6,14 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface MessageDao {
 
-    @Query("SELECT * FROM messages WHERE chatUin = :chatUin ORDER BY timestamp ASC LIMIT 100")
+    @Query("SELECT * FROM messages WHERE chatUin = :chatUin ORDER BY timestamp ASC LIMIT 500")
     fun getMessages(chatUin: Long): Flow<List<MessageEntity>>
+
+    @Query("SELECT * FROM messages WHERE chatUin = :chatUin ORDER BY timestamp DESC LIMIT :limit OFFSET :offset")
+    fun getMessagesPaged(chatUin: Long, limit: Int, offset: Int): Flow<List<MessageEntity>>
+
+    @Query("SELECT COUNT(*) FROM messages WHERE chatUin = :chatUin")
+    suspend fun getMessageCount(chatUin: Long): Int
 
     @Query("SELECT * FROM messages WHERE chatUin = :chatUin ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLastMessage(chatUin: Long): MessageEntity?
@@ -64,4 +70,7 @@ interface GroupMessageDao {
 
     @Query("DELETE FROM group_messages WHERE groupId = :groupId")
     suspend fun clearGroup(groupId: Long)
+
+    @Query("DELETE FROM group_messages")
+    suspend fun clearAll()
 }
