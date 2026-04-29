@@ -57,6 +57,7 @@ fun ChatScreen(
     val messages by viewModel.messagesState.collectAsState()
     val wsConnected by viewModel.wsConnected.collectAsState()
     val typingUsers by viewModel.typingUsers.collectAsState()
+    val scrollToBottom by viewModel.scrollToBottom.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
     var isUserTyping by remember { mutableStateOf(false) }
@@ -155,6 +156,13 @@ fun ChatScreen(
         }
     }
 
+    // Force scroll after sending own message
+    LaunchedEffect(scrollToBottom) {
+        if (scrollToBottom > 0L && messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
     // Sound on incoming message
     var lastCount by remember { mutableStateOf(messages.size) }
     LaunchedEffect(messages.size) {
@@ -229,7 +237,9 @@ fun ChatScreen(
                 val isOutgoing = msg.status != null
                 var showMenu by remember { mutableStateOf(false) }
                 var showEdit by remember { mutableStateOf(false) }
-                Box(modifier = Modifier.fillMaxWidth()) {
+                Box(modifier = Modifier
+                    .fillMaxWidth()
+                    .animateItem()) {
                     MessageBubble(msg, isOutgoing, palette,
                         onLongPress = { if (isOutgoing) showMenu = true },
                     )

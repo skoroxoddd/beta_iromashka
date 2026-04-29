@@ -79,6 +79,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private var chatCollectionJob: Job? = null
     private val ttlJobs = mutableMapOf<Long, Job>()
 
+    private val _scrollToBottom = MutableStateFlow(0L)
+    val scrollToBottom: StateFlow<Long> = _scrollToBottom
+
     // Market
     var marketUin: Long? by mutableStateOf(null)
     var marketPrice: Int by mutableStateOf(0)
@@ -280,6 +283,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             _wsConnected.value = true
                             ensureBotContact()
                             syncAllHistory()
+                            syncPhoneContacts()
                         }
                         is WsEvent.Disconnected -> _wsConnected.value = false
                         is WsEvent.AuthFailed   -> {
@@ -655,6 +659,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     isE2E = true
                 ))
                 android.util.Log.d("ChatVM", "Inserted local msg to $toUin at $nowMs")
+                _scrollToBottom.value = System.currentTimeMillis()
                 if (ttlSec > 0) scheduleTtlDelete(toUin, nowMs, ttlSec)
                 // Save to server for history persistence (with F3 sender-copy for cross-device outbox).
                 val token = Prefs.getToken(ctx)
@@ -782,6 +787,53 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 onResult(emptyList())
             }
         }
+    }
+
+    fun syncPhoneContacts() {
+        val token = Prefs.getToken(ctx)
+        if (token.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val phones = loadPhoneContacts()
+                if (phones.isEmpty()) return@runCatching
+                phones.chunked(100).forEach { batch ->
+                    val results = api.discoverContacts("Bearer $token", com.iromashka.network.DiscoverRequest(batch))
+                    for (r in results) {
+                        val uin = r.uin.toLong()
+                        if (contactDao.getByUin(uin) == null) {
+                            contactDao.insert(ContactEntity(uin, r.nickname.ifBlank { r.phone }))
+                        }
+                    }
+                }
+            }.onFailure { android.util.Log.w("ChatVM", "syncPhoneContacts failed: ${it.message}") }
+        }
+    }
+
+    private fun loadPhoneContacts(): List<String> {
+        val phones = mutableListOf<String>()
+        val cursor = ctx.contentResolver.query(
+            android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            arrayOf(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER),
+            null, null, null
+        ) ?: return phones
+        cursor.use {
+            val col = it.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER)
+            while (it.moveToNext()) {
+                val raw = it.getString(col) ?: continue
+                val normalized = normalizePhone(raw)
+                if (normalized != null) phones.add(normalized)
+            }
+        }
+        return phones.distinct()
+    }
+
+    private fun normalizePhone(raw: String): String? {
+        val digits = raw.filter { it.isDigit() || it == '+' }
+        if (digits.length < 7) return null
+        return if (digits.startsWith("+")) digits
+        else if (digits.startsWith("8") && digits.length == 11) "+7${digits.drop(1)}"
+        else if (digits.startsWith("7") && digits.length == 11) "+$digits"
+        else "+$digits"
     }
 
     data class DiscoveredResult(val uin: Long, val phone: String, val nickname: String)

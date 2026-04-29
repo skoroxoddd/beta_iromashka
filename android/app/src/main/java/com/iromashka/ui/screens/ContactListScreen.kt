@@ -30,6 +30,9 @@ import com.iromashka.storage.Prefs
 import com.iromashka.ui.theme.LocalThemePalette
 import com.iromashka.ui.theme.ThemeMode
 import com.iromashka.viewmodel.ChatViewModel
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,6 +61,19 @@ fun ContactListScreen(
     var showStatusDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var tabSelected by remember { mutableStateOf(0) } // 0=contacts, 1=groups
+
+    val contactsPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) viewModel.syncPhoneContacts()
+    }
+
+    LaunchedEffect(Unit) {
+        val perm = android.Manifest.permission.READ_CONTACTS
+        if (ContextCompat.checkSelfPermission(ctx, perm) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            viewModel.syncPhoneContacts()
+        } else {
+            contactsPermission.launch(perm)
+        }
+    }
 
     Column(
         modifier = Modifier
