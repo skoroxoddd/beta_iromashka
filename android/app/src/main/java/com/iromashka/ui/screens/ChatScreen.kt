@@ -62,19 +62,19 @@ fun ChatScreen(
     var isUserTyping by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    // Media state
+    // Media state - stored in ViewModel to survive config changes
     var recording by remember { mutableStateOf(false) }
-    var recorder by remember { mutableStateOf<android.media.MediaRecorder?>(null) }
-    var recFile by remember { mutableStateOf<File?>(null) }
+    val recorderRef = remember { mutableStateOf<android.media.MediaRecorder?>(null) }
+    val recFileRef = remember { mutableStateOf<File?>(null) }
 
     // Cleanup recorder on exit
     DisposableEffect(Unit) {
         onDispose {
             runCatching {
-                recorder?.stop()
-                recorder?.release()
+                recorderRef.value?.stop()
+                recorderRef.value?.release()
             }
-            recorder = null
+            recorderRef.value = null
         }
     }
 
@@ -90,8 +90,8 @@ fun ChatScreen(
                 prepare()
                 start()
             }
-            recorder = r
-            recFile = f
+            recorderRef.value = r
+            recFileRef.value = f
             recording = true
         }.onFailure {
             android.util.Log.e("ChatScreen", "rec start ${it.message}")
@@ -102,9 +102,9 @@ fun ChatScreen(
 
     fun stopAndSendAudio() {
         runCatching {
-            recorder?.stop(); recorder?.release(); recorder = null
+            recorderRef.value?.stop(); recorderRef.value?.release(); recorderRef.value = null
             recording = false
-            val f = recFile ?: return
+            val f = recFileRef.value ?: return
             scope.launch {
                 val tag = MediaUtils.audioFileToHtmlTag(ctx, f) ?: return@launch
                 viewModel.sendMessage(toUin, tag)
@@ -477,6 +477,8 @@ private fun MessageBubble(
     }
 }
 
+private var activePlayers = mutableListOf<MediaPlayer>()
+
 private fun playSound(ctx: android.content.Context, type: String) {
     val resId = when (type) {
         "outgoing" -> com.iromashka.R.raw.outgoing_message
@@ -485,7 +487,11 @@ private fun playSound(ctx: android.content.Context, type: String) {
     if (resId != 0) {
         runCatching {
             val mp = MediaPlayer.create(ctx, resId)
-            mp.setOnCompletionListener { mp.release() }
+            activePlayers.add(mp)
+            mp.setOnCompletionListener {
+                mp.release()
+                activePlayers.remove(mp)
+            }
             mp.start()
         }
     }

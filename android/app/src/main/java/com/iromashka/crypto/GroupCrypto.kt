@@ -82,7 +82,7 @@ object GroupCrypto {
     fun decryptWithGroupKey(ciphertext: String, groupKey: SecretKey): String? {
         return runCatching {
             val raw = Base64.decode(ciphertext, Base64.NO_WRAP)
-            if (raw.size < 29) return null // 12 iv + 16 tag + 1 min data
+            if (raw.size < 28) return null // 12 iv + 16 tag
             val iv = raw.sliceArray(0 until 12)
             val ct = raw.sliceArray(12 until raw.size)
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")

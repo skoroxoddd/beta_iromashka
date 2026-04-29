@@ -509,7 +509,7 @@ private fun PhoneDiscoverDialog(
         containerColor = palette.surface,
         title = { Text("Найти по номеру", color = palette.textPrimary) },
         text = {
-            Column {
+            Column(modifier = Modifier.heightIn(max = 300.dp)) {
                 OutlinedTextField(
                     value = phoneText,
                     onValueChange = { phoneText = it },
@@ -522,16 +522,18 @@ private fun PhoneDiscoverDialog(
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
                 if (results.isNotEmpty()) {
-                    results.forEach { contact ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable {
-                                onAdd(contact.uin, contact.nickname)
-                            }.padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("${contact.nickname} (${contact.uin})", 
-                                color = palette.textPrimary, modifier = Modifier.weight(1f))
-                            Icon(Icons.Default.Add, null, tint = palette.accent)
+                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                        items(results) { contact ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    onAdd(contact.uin, contact.nickname)
+                                }.padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("${contact.nickname} (${contact.uin})",
+                                    color = palette.textPrimary, modifier = Modifier.weight(1f))
+                                Icon(Icons.Default.Add, null, tint = palette.accent)
+                            }
                         }
                     }
                 }
