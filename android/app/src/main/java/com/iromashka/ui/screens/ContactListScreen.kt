@@ -63,13 +63,14 @@ fun ContactListScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(palette.background)
+            .windowInsetsPadding(WindowInsets.systemBars)
     ) {
         // Title bar
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(palette.titleBar)
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .padding(horizontal = 8.dp, vertical = 8.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -381,7 +382,7 @@ private fun ContactItem(contact: ContactEntity, palette: com.iromashka.ui.theme.
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(modifier = Modifier.size(50.dp)) {
@@ -402,7 +403,7 @@ private fun ContactItem(contact: ContactEntity, palette: com.iromashka.ui.theme.
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .size(13.dp)
+                    .size(14.dp)
                     .clip(CircleShape)
                     .background(palette.surface)
                     .padding(2.dp)

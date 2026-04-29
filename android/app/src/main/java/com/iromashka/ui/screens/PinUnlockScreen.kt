@@ -37,7 +37,7 @@ fun PinUnlockScreen(onUnlock: (String) -> Boolean, onForgotPin: () -> Unit = {})
     val isLocked = remainingSecs > 0
     val fails = Prefs.getPinFailures(ctx)
 
-    Box(Modifier.fillMaxSize().background(p.background)) {
+    Box(Modifier.fillMaxSize().background(p.background).windowInsetsPadding(WindowInsets.systemBars)) {
         Box(Modifier.fillMaxWidth().height(4.dp).background(p.accent))
 
         Column(

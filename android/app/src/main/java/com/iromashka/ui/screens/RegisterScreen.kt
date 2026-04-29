@@ -49,7 +49,7 @@ fun RegisterScreen(
         if (state is AuthState.Success) onSuccess((state as AuthState.Success).uin)
     }
 
-    Column(Modifier.fillMaxSize().background(p.background)) {
+    Column(Modifier.fillMaxSize().background(p.background).windowInsetsPadding(WindowInsets.systemBars)) {
 
         // Top accent bar
         Box(Modifier.fillMaxWidth().height(4.dp).background(p.accent))

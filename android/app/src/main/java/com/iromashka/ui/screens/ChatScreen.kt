@@ -2,6 +2,7 @@ package com.iromashka.ui.screens
 
 import android.media.MediaPlayer
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.*
@@ -169,13 +170,14 @@ fun ChatScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(palette.chatBg)
+            .windowInsetsPadding(WindowInsets.systemBars)
     ) {
         // ── Title bar ───────────────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(palette.titleBar)
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .padding(horizontal = 8.dp, vertical = 6.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -329,7 +331,7 @@ fun ChatScreen(
                         }
                     }
                 }
-                // PWA-style rounded input field
+                // PWA-style rounded input field with border
                 TextField(
                     value = inputText,
                     onValueChange = { inputText = it
@@ -343,7 +345,12 @@ fun ChatScreen(
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(24.dp)),
+                        .clip(RoundedCornerShape(22.dp))
+                        .border(
+                            width = 1.5.dp,
+                            color = palette.divider,
+                            shape = RoundedCornerShape(22.dp)
+                        ),
                     placeholder = { Text("Сообщение...", color = palette.textSecondary) },
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = palette.inputBg,
@@ -353,7 +360,7 @@ fun ChatScreen(
                         focusedTextColor = palette.textPrimary,
                         unfocusedTextColor = palette.textPrimary,
                     ),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(22.dp),
                     maxLines = 5,
                 )
                 Spacer(Modifier.width(6.dp))

@@ -44,7 +44,8 @@ fun LoginScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(p.background)) {
+    Box(Modifier.fillMaxSize().background(p.background)
+        .windowInsetsPadding(WindowInsets.systemBars)) {
 
         // Top accent bar
         Box(Modifier.fillMaxWidth().height(4.dp).background(p.accent))
@@ -80,7 +81,7 @@ fun LoginScreen(
             // Card
             Card(
                 modifier = Modifier.padding(horizontal = 24.dp).fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = p.surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {

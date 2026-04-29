@@ -38,7 +38,7 @@ fun PasswordMigrationScreen(
         password.any { !it.isLetterOrDigit() }
     val passwordsMatch = password == password2
 
-    Column(Modifier.fillMaxSize().background(p.background)) {
+    Column(Modifier.fillMaxSize().background(p.background).windowInsetsPadding(WindowInsets.systemBars)) {
 
         Box(Modifier.fillMaxWidth().height(4.dp).background(p.accent))
 

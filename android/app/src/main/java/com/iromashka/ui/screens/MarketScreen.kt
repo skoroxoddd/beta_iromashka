@@ -60,7 +60,7 @@ fun MarketScreen(
     val masks = if (selectedLength == 6) sixMasks else sevenMasks
 
     Column(
-        modifier = Modifier.fillMaxSize().background(palette.background)
+        modifier = Modifier.fillMaxSize().background(palette.background).windowInsetsPadding(WindowInsets.systemBars)
     ) {
         // Title bar
         Box(
