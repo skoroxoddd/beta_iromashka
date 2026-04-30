@@ -338,7 +338,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
         if (localWrapped == serverWrapped) {
             // Доп. страховка: pubkey в Prefs мог отстать (например, после change-pin без push).
             runCatching {
-                val pk = api.getPubKey(uin)
+                val pk = api.getPubKey("Bearer $token", uin)
                 if (pk.pubkey.isNotEmpty() && pk.pubkey != Prefs.getPubKey(ctx)) {
                     Prefs.updatePubKey(ctx, pk.pubkey)
                 }
@@ -356,7 +356,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
 
         Prefs.updateWrappedPriv(ctx, serverWrapped)
         runCatching {
-            val pk = api.getPubKey(uin)
+            val pk = api.getPubKey("Bearer $token", uin)
             if (pk.pubkey.isNotEmpty()) Prefs.updatePubKey(ctx, pk.pubkey)
         }
         android.util.Log.i("AuthVM", "syncIdentity: replaced local identity with server canon for UIN $uin (was ${if (localWrapped.isEmpty()) "empty" else "stale"})")

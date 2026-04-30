@@ -30,7 +30,10 @@ object ApiService {
         suspend fun login(@Body body: LoginRequest): LoginResponse
 
         @GET("pubkey/{uin}")
-        suspend fun getPubKey(@Path("uin") uin: Long): PubKeyResponse
+        suspend fun getPubKey(
+            @Header("Authorization") token: String,
+            @Path("uin") uin: Long
+        ): PubKeyResponse
 
         @PUT("fcm-token")
         suspend fun setFcmToken(@Header("Authorization") token: String, @Body body: FcmTokenRequest)

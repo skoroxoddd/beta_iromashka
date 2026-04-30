@@ -496,7 +496,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val allUins = (members.map { it.uin } + myUin).distinct()
 
         for (uin in allUins) {
-            val pubKeyResp = runCatching { api.getPubKey(uin) }.getOrNull() ?: continue
+            val pubKeyResp = runCatching { api.getPubKey("Bearer $token", uin) }.getOrNull() ?: continue
             val encrypted = com.iromashka.crypto.GroupCrypto.encryptGroupKeyForMember(groupKeyB64, pubKeyResp.pubkey)
             if (encrypted != null) {
                 keys.add(GroupKeyEntry(uin, encrypted))
@@ -620,7 +620,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 // распакует общим privkey. MULTI per-device fan-out больше не нужен —
                 // он только плодил дубли в synced_messages (×N stale device_id).
                 val cached = pubkeyCache[toUin]
-                val pubKeyB64 = cached ?: api.getPubKey(toUin).pubkey.also { pubkeyCache[toUin] = it }
+                val pubKeyB64 = cached ?: api.getPubKey("Bearer $token", toUin).pubkey.also { pubkeyCache[toUin] = it }
                 val recipPub = CryptoManager.importPublicKey(pubKeyB64)
                 val ciphertext = CryptoManager.encryptMessage(payloadText, recipPub)
 
@@ -730,7 +730,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 val cached = pubkeyCache[receiverUin]
-                val pub = CryptoManager.importPublicKey(cached ?: api.getPubKey(receiverUin).pubkey.also { pubkeyCache[receiverUin] = it })
+                val pub = CryptoManager.importPublicKey(cached ?: api.getPubKey("Bearer $token", receiverUin).pubkey.also { pubkeyCache[receiverUin] = it })
                 val ct = CryptoManager.encryptMessage(newText, pub)
                 val resp = ApiService.okHttpClient.newCall(
                     okhttp3.Request.Builder()
