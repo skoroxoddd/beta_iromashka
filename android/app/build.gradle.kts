@@ -15,9 +15,6 @@ android {
         versionCode = 36
         versionName = "1.7.3"
 
-        // Play Store required
-        setProperty("archivesBaseName", "iromashka-v${versionName}")
-
         // Lint
         resourceConfigurations += listOf("ru", "en")
     }
