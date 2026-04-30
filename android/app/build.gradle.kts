@@ -12,8 +12,14 @@ android {
         applicationId = "com.iromashka"
         minSdk = 26
         targetSdk = 34
-        versionCode = 33
-        versionName = "1.7.0"
+        versionCode = 34
+        versionName = "1.7.1"
+
+        // Play Store required
+        setProperty("archivesBaseName", "iromashka-v${versionName}")
+
+        // Lint
+        resourceConfigurations += listOf("ru", "en")
     }
 
     signingConfigs {
@@ -32,10 +38,21 @@ android {
         }
     }
 
+    bundle {
+        language { enableSplit = true }
+        density { enableSplit = true }
+        abi { enableSplit = true }
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }

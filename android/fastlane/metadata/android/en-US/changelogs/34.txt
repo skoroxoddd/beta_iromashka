@@ -1,0 +1,5 @@
+• Consent checkbox for personal data policy at registration (152-FZ compliance)
+• Phone book contact sync (HMAC hashing — actual numbers are never sent to the server)
+• Auto-scroll to bottom after sending a message
+• Status broadcast now only reaches users who have you in their contacts
+• Stability fixes

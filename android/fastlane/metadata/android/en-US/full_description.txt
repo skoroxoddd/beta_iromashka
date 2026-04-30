@@ -1,0 +1,28 @@
+iRomashka is a Russian open-source messenger built on privacy and security principles.
+
+🔒 End-to-End Encryption (E2E)
+All messages are encrypted on your device using P-256 ECDH + AES-256-GCM. The server has no access to message content.
+
+📱 Multi-device Support
+Works simultaneously on multiple devices. Chat history is synchronized in encrypted form.
+
+👥 Group Chats
+Group conversations with full end-to-end encryption for every participant.
+
+🔑 Recovery Phrase
+A 12-word BIP39 recovery phrase lets you restore access to your chat history even if you lose your device.
+
+📖 Contact Sync
+Automatically find contacts from your phone book — without sending actual numbers to the server (HMAC hashing).
+
+🛡 Private Key Stays with You
+Your private key is encrypted on-device and never leaves it.
+
+⚡ Fast Unlock
+Unlock via biometrics or PIN without re-entering your password.
+
+📦 Open Source
+The app code is available for audit on GitHub.
+
+Requirements: Android 8.0 and above.
+Server is located in Russia. Data is processed in compliance with Federal Law No. 152-FZ.
