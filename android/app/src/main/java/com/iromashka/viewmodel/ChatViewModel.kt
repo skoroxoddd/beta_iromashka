@@ -616,37 +616,20 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
             runCatching {
-                val devices = runCatching {
-                    api.getUserDevices("Bearer $token", toUin)
-                }.getOrNull()
+                // D1 single-identity: один identity_key на UIN, любой девайс получателя
+                // распакует общим privkey. MULTI per-device fan-out больше не нужен —
+                // он только плодил дубли в synced_messages (×N stale device_id).
+                val cached = pubkeyCache[toUin]
+                val pubKeyB64 = cached ?: api.getPubKey(toUin).pubkey.also { pubkeyCache[toUin] = it }
+                val recipPub = CryptoManager.importPublicKey(pubKeyB64)
+                val ciphertext = CryptoManager.encryptMessage(payloadText, recipPub)
 
-                val ciphertext: String
-                val payloads: List<com.iromashka.crypto.CryptoManager.DevicePayload>?
-
-                if (!devices.isNullOrEmpty()) {
-                    val deviceInfos = devices.map {
-                        com.iromashka.crypto.CryptoManager.DeviceInfo(it.device_id, it.pubkey)
-                    }
-                    payloads = CryptoManager.encryptForDevices(payloadText, deviceInfos)
-                    ciphertext = payloads.firstOrNull()?.ciphertext ?: payloadText
-                } else {
-                    payloads = null
-                    val cached = pubkeyCache[toUin]
-                    val pubKeyB64 = cached ?: api.getPubKey(toUin).pubkey.also { pubkeyCache[toUin] = it }
-                    val recipPub = CryptoManager.importPublicKey(pubKeyB64)
-                    ciphertext = CryptoManager.encryptMessage(payloadText, recipPub)
-                }
-
-                if (payloads != null) {
-                    wsClient?.sendMultiDeviceMessage(myUin, toUin, payloads)
-                } else {
-                    wsClient?.sendMessage(WsEnvelope(
-                        sender_uin = myUin,
-                        receiver_uin = toUin,
-                        ciphertext = ciphertext,
-                        timestamp = 0
-                    ))
-                }
+                wsClient?.sendMessage(WsEnvelope(
+                    sender_uin = myUin,
+                    receiver_uin = toUin,
+                    ciphertext = ciphertext,
+                    timestamp = 0
+                ))
 
                 val nowMs = System.currentTimeMillis()
                 msgDao.insertMessage(MessageEntity(
