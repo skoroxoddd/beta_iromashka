@@ -75,6 +75,13 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
         _paymentState.value = PaymentState.Idle
     }
 
+    suspend fun lookupUinByPhone(phone: String): Long? {
+        val clean = phone.filter { it.isDigit() }
+        if (clean.length < 7) return null
+        val resp = runCatching { api.paymentStatus(clean) }.getOrNull()
+        return resp?.uin?.takeIf { it > 0 }
+    }
+
     fun register(nickname: String, pin: String, password: String, phone: String = "70000000000") {
         viewModelScope.launch {
             _state.value = AuthState.Loading

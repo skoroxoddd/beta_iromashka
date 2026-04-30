@@ -1,6 +1,7 @@
 package com.iromashka.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -10,15 +11,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.*
+import android.widget.Toast
 import com.iromashka.R
 import com.iromashka.ui.theme.LocalThemePalette
 import com.iromashka.viewmodel.AuthState
 import com.iromashka.viewmodel.AuthViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,14 +31,21 @@ fun LoginScreen(
     onSuccess: (Long, String) -> Unit,
     onRegister: () -> Unit,
     onForgotPin: () -> Unit = {},
-    onNeedsMigration: (Long, String) -> Unit = { _, _ -> }
+    onNeedsMigration: (Long, String) -> Unit = { _, _ -> },
+    prefillUin: String = ""
 ) {
     val p = LocalThemePalette.current
     val state by viewModel.state.collectAsState()
+    val ctx = LocalContext.current
 
-    var uinInput by remember { mutableStateOf("") }
+    var uinInput by remember { mutableStateOf(prefillUin) }
     var pinInput by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
+    var showLookup by remember { mutableStateOf(false) }
+    var lookupPhone by remember { mutableStateOf("") }
+    var lookupBusy by remember { mutableStateOf(false) }
+    var lookupError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(state) {
         when (state) {
@@ -175,6 +186,9 @@ fun LoginScreen(
                     TextButton(onClick = onRegister, modifier = Modifier.fillMaxWidth()) {
                         Text("Зарегистрироваться", color = p.accent, fontSize = 14.sp)
                     }
+                    TextButton(onClick = { showLookup = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Не помню UIN — найти по телефону", color = p.accent, fontSize = 13.sp)
+                    }
                     TextButton(onClick = onForgotPin, modifier = Modifier.fillMaxWidth()) {
                         Text("Забыл PIN — восстановить по фразе", color = p.accent, fontSize = 13.sp)
                     }
@@ -193,5 +207,60 @@ fun LoginScreen(
                 }
             }
         }
+    }
+
+    if (showLookup) {
+        AlertDialog(
+            onDismissRequest = { if (!lookupBusy) showLookup = false },
+            confirmButton = {
+                TextButton(
+                    enabled = !lookupBusy && lookupPhone.filter { it.isDigit() }.length >= 7,
+                    onClick = {
+                        lookupBusy = true
+                        lookupError = null
+                        scope.launch {
+                            val clean = lookupPhone.filter { it.isDigit() }
+                            val resp = runCatching { viewModel.lookupUinByPhone(clean) }.getOrNull()
+                            lookupBusy = false
+                            if (resp != null && resp > 0) {
+                                uinInput = resp.toString()
+                                Toast.makeText(ctx, "UIN найден: $resp", Toast.LENGTH_LONG).show()
+                                showLookup = false
+                            } else {
+                                lookupError = "По этому телефону аккаунт не найден"
+                            }
+                        }
+                    }
+                ) { Text("Найти", color = p.accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLookup = false }, enabled = !lookupBusy) {
+                    Text("Отмена", color = p.textSecondary)
+                }
+            },
+            title = { Text("Найти UIN по телефону") },
+            text = {
+                Column {
+                    Text("Введите номер, на который оплачивали аккаунт.", fontSize = 13.sp, color = p.textSecondary)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = lookupPhone,
+                        onValueChange = { lookupPhone = it },
+                        placeholder = { Text("+7 999 123-45-67") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (lookupError != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(lookupError!!, color = p.errorRed, fontSize = 12.sp)
+                    }
+                    if (lookupBusy) {
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = p.accent)
+                    }
+                }
+            }
+        )
     }
 }

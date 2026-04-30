@@ -3,8 +3,10 @@ package com.iromashka.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -77,7 +79,7 @@ fun RegisterScreen(
 
         HorizontalDivider(color = p.divider, thickness = 1.dp)
 
-        Column(Modifier.fillMaxWidth().padding(24.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp)) {
 
             Text("Создать аккаунт", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = p.textPrimary)
             Text("UIN будет выдан автоматически", fontSize = 12.sp, color = p.textSecondary)
@@ -193,7 +195,7 @@ fun RegisterScreen(
 
                     // 152-ФЗ consent checkbox
                     Row(
-                        verticalAlignment = Alignment.Top,
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Checkbox(
@@ -214,7 +216,7 @@ fun RegisterScreen(
                             fontSize = 12.sp,
                             color = p.textSecondary,
                             modifier = Modifier
-                                .padding(top = 12.dp)
+                                .weight(1f)
                                 .clickable {
                                     uriHandler.openUri("https://iromashka.ru/privacy-policy.html")
                                 }
