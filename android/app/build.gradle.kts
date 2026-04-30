@@ -12,8 +12,8 @@ android {
         applicationId = "com.iromashka"
         minSdk = 26
         targetSdk = 34
-        versionCode = 35
-        versionName = "1.7.2"
+        versionCode = 36
+        versionName = "1.7.3"
 
         // Play Store required
         setProperty("archivesBaseName", "iromashka-v${versionName}")

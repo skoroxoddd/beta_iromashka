@@ -231,7 +231,7 @@ class WsClient(
     fun sendStatus(status: String) {
         val payload = mapOf(
             "type" to "ChangeStatus",
-            "data" to mapOf("status" to status)
+            "data" to status
         )
         sendBinary(gson.toJson(payload).encodeToByteArray())
     }

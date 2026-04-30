@@ -33,6 +33,7 @@ import com.iromashka.viewmodel.AuthViewModel
 fun RegisterScreen(
     viewModel: AuthViewModel,
     paidPhone: String,
+    paidUin: Long = 0L,
     onSuccess: (Long) -> Unit,
     onBack: () -> Unit
 ) {
@@ -228,7 +229,7 @@ fun RegisterScreen(
                     Button(
                         onClick = {
                             if (nickname.isNotBlank() && pin.length >= 6 && pin == pin2 && passwordValid && passwordsMatch && consentChecked)
-                                viewModel.register(nickname, pin, password, phone)
+                                viewModel.register(nickname, pin, password, phone, paidUin)
                         },
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                         enabled = nickname.isNotBlank() && pin.length >= 6 && pin == pin2 && passwordValid && passwordsMatch && consentChecked,

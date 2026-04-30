@@ -250,6 +250,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
             RegisterScreen(
                 viewModel = authVm,
                 paidPhone = paidPhone,
+                paidUin = paidUin,
                 onSuccess = { _ ->
                     navController.navigate("pin_unlock") {
                         popUpTo(0) { inclusive = true }

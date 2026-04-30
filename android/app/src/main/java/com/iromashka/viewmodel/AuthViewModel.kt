@@ -82,7 +82,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
         return resp?.uin?.takeIf { it > 0 }
     }
 
-    fun register(nickname: String, pin: String, password: String, phone: String = "70000000000") {
+    fun register(nickname: String, pin: String, password: String, phone: String = "70000000000", expectedUin: Long = 0L) {
         viewModelScope.launch {
             _state.value = AuthState.Loading
             runCatching {
@@ -91,6 +91,15 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 val wrappedPriv = CryptoManager.wrapPrivateKey(kp.private, pin)
 
                 val resp = api.register(RegisterRequest(phone, pin, password, pubB64))
+
+                // Sanity-check: UIN, который сервер вернул, должен совпасть с тем, что
+                // показали юзеру на uin_reveal. Если разный — что-то протекло (race,
+                // подмена телефона, баг сервера); прерываем чтобы юзер не получил
+                // чужой аккаунт.
+                if (expectedUin > 0 && resp.uin != expectedUin) {
+                    android.util.Log.e("AuthVM", "Register UIN mismatch: expected=$expectedUin server=${resp.uin}")
+                    throw IllegalStateException("uin_mismatch")
+                }
 
                 Prefs.saveSession(ctx, resp.uin, nickname, resp.token, wrappedPriv, pubB64, resp.refresh_token)
                 registerDevice(resp.token, pubB64)
@@ -105,9 +114,16 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
 
                 _state.value = AuthState.Success(resp.uin)
             }.onFailure {
+                val raw = it.message.orEmpty()
                 val msg = when {
-                    it.message?.contains("weak_password") == true -> "Слабый пароль: мин. 12 символов, 1 заглавная, 1 цифра, 1 спецсимвол"
-                    else -> it.message ?: "Registration failed"
+                    raw.contains("weak_password") -> "Слабый пароль: мин. 12 символов, 1 заглавная, 1 цифра, 1 спецсимвол"
+                    raw.contains("phone_already_registered") || raw.contains("409") ->
+                        "Этот номер уже зарегистрирован. Войдите по UIN+PIN или оплатите ещё одну активацию для нового UIN на этом номере."
+                    raw.contains("payment_required") || raw.contains("402") ->
+                        "Оплата не найдена. Оплатите активацию аккаунта."
+                    raw.contains("uin_mismatch") ->
+                        "Расхождение UIN. Перезапустите регистрацию."
+                    else -> raw.ifEmpty { "Registration failed" }
                 }
                 _state.value = AuthState.Error(msg)
             }
@@ -118,16 +134,12 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _state.value = AuthState.Loading
             runCatching {
-                val wrappedPriv = Prefs.getWrappedPriv(ctx)
                 val trimmedPassword = password?.trim()?.ifEmpty { null }
 
-                // Local key exists — verify PIN before hitting server
-                if (wrappedPriv.isNotEmpty()) {
-                    if (!CryptoManager.verifyPin(wrappedPriv, pin)) {
-                        _state.value = AuthState.Error("Неверный PIN-код")
-                        return@launch
-                    }
-                }
+                // Раньше тут был early-return с verifyPin(local, pin) → "Неверный PIN-код".
+                // Это давало ложный отказ, если локальный wrappedPriv устарел (другой PIN был
+                // при его создании), но серверный канон с текущим PIN распаковывается ок.
+                // Проверку PIN делаем по серверному ключу внутри syncIdentityFromServer ниже.
 
                 val pubKey = Prefs.getPubKey(ctx)
                 val resp = api.login(LoginRequest(uin, pin, trimmedPassword, pubKey.ifEmpty { null }))
@@ -148,46 +160,14 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 Prefs.updateTokenTimestamp(ctx, System.currentTimeMillis())
                 Prefs.updateUin(ctx, resp.uin)
 
-                // First-time login on this device (no local wrapped key)
-                if (wrappedPriv.isEmpty()) {
-                    val serverKey = resp.encrypted_key
-                    var restoredKey: String? = null
-                    if (!serverKey.isNullOrEmpty()) {
-                        // Strict unwrap: server holds the canonical identity key
-                        val ok = runCatching { CryptoManager.unwrapPrivateKey(serverKey, pin) }.isSuccess
-                        if (ok) restoredKey = serverKey
-                        else android.util.Log.w("AuthVM", "Server has encrypted_key for UIN $uin but PIN does not unwrap it")
-                    }
-
-                    if (restoredKey != null) {
-                        Prefs.updateWrappedPriv(ctx, restoredKey)
-                        // Re-derive our pubkey from server-stored identity, fetch via API
-                        runCatching {
-                            val pk = api.getPubKey(uin)
-                            if (pk.pubkey.isNotEmpty()) Prefs.updatePubKey(ctx, pk.pubkey)
-                        }
-                        android.util.Log.i("AuthVM", "Restored shared identity key from server for UIN $uin")
-                    } else if (serverKey.isNullOrEmpty()) {
-                        // Server has nothing at all — first device for this account, generate + push
-                        val kp = CryptoManager.generateKeyPair()
-                        val newWrapped = CryptoManager.wrapPrivateKey(kp.private, pin)
-                        val newPub = CryptoManager.exportPublicKey(kp.public)
-                        Prefs.updateWrappedPriv(ctx, newWrapped)
-                        Prefs.updatePubKey(ctx, newPub)
-                        runCatching {
-                            api.updatePubkey("Bearer ${resp.token}",
-                                com.iromashka.network.UpdatePubkeyRequest(newPub))
-                        }
-                        runCatching {
-                            api.saveUserKey("Bearer ${resp.token}",
-                                com.iromashka.network.SaveKeyRequest(encrypted_key = newWrapped, salt = ""))
-                        }
-                        android.util.Log.w("AuthVM", "No server key for UIN $uin — generated fresh keypair")
-                    } else {
-                        // Server has a key but PIN does not unwrap it → wrong PIN
-                        _state.value = AuthState.Error("Неверный PIN-код")
-                        return@launch
-                    }
+                // ── Identity sync: на КАЖДОМ login сравнить локальный pubkey с серверным
+                // и при расхождении взять серверный encrypted_key как канон. Иначе APK
+                // может застрять со своим устаревшим privkey, пока PWA шифрует под
+                // более свежим pubkey UIN — отсюда "не удалось расшифровать" PWA→APK.
+                val syncOk = syncIdentityFromServer(uin, pin, resp.token, resp.encrypted_key)
+                if (!syncOk) {
+                    _state.value = AuthState.Error("Неверный PIN-код")
+                    return@launch
                 }
 
                 registerDevice(resp.token, Prefs.getPubKey(ctx))
@@ -308,6 +288,79 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 onError(msg)
             }
         }
+    }
+
+    /**
+     * Sync identity keypair с сервером.
+     *
+     * Возвращает true если в Prefs лежит правильный (соответствующий серверу) wrappedPriv+pubKey,
+     * false если PIN не подходит к серверному ключу.
+     *
+     * Логика:
+     *  1) если сервер ничего не хранит (encrypted_key пуст) — поведение как было: генерим, пушим.
+     *  2) если сервер хранит ключ — он канонический. Сверяем с локальным:
+     *     - Если локального нет ИЛИ локальный != серверному → распаковываем серверный текущим PIN.
+     *       Если PIN подходит — заменяем локальный, тянем pubkey из API.
+     *       Если не подходит — return false (purge не делаем, чтобы пользователь не потерял
+     *       историю при простой опечатке в PIN).
+     *     - Если локальный == серверный — ничего делать не нужно.
+     */
+    private suspend fun syncIdentityFromServer(
+        uin: Long,
+        pin: String,
+        token: String,
+        serverWrapped: String?
+    ): Boolean {
+        val localWrapped = Prefs.getWrappedPriv(ctx)
+
+        // Случай 1: сервер пуст → первое устройство, генерим ключ если ещё нет.
+        if (serverWrapped.isNullOrEmpty()) {
+            if (localWrapped.isEmpty()) {
+                val kp = CryptoManager.generateKeyPair()
+                val newWrapped = CryptoManager.wrapPrivateKey(kp.private, pin)
+                val newPub = CryptoManager.exportPublicKey(kp.public)
+                Prefs.updateWrappedPriv(ctx, newWrapped)
+                Prefs.updatePubKey(ctx, newPub)
+                runCatching {
+                    api.updatePubkey("Bearer $token",
+                        com.iromashka.network.UpdatePubkeyRequest(newPub))
+                }
+                runCatching {
+                    api.saveUserKey("Bearer $token",
+                        com.iromashka.network.SaveKeyRequest(encrypted_key = newWrapped, salt = ""))
+                }
+                android.util.Log.w("AuthVM", "No server key for UIN $uin — generated fresh keypair")
+            }
+            return true
+        }
+
+        // Случай 2: сервер хранит ключ. Если локальный совпадает — всё хорошо.
+        if (localWrapped == serverWrapped) {
+            // Доп. страховка: pubkey в Prefs мог отстать (например, после change-pin без push).
+            runCatching {
+                val pk = api.getPubKey(uin)
+                if (pk.pubkey.isNotEmpty() && pk.pubkey != Prefs.getPubKey(ctx)) {
+                    Prefs.updatePubKey(ctx, pk.pubkey)
+                }
+            }
+            return true
+        }
+
+        // Случай 3: серверный != локальный (или локальный пуст). Серверный — канон.
+        // Распаковываем серверный текущим PIN. Если ок — заменяем.
+        val serverUnwraps = runCatching { CryptoManager.unwrapPrivateKey(serverWrapped, pin) }.isSuccess
+        if (!serverUnwraps) {
+            android.util.Log.w("AuthVM", "syncIdentity: server key for UIN $uin does not unwrap with given PIN")
+            return false
+        }
+
+        Prefs.updateWrappedPriv(ctx, serverWrapped)
+        runCatching {
+            val pk = api.getPubKey(uin)
+            if (pk.pubkey.isNotEmpty()) Prefs.updatePubKey(ctx, pk.pubkey)
+        }
+        android.util.Log.i("AuthVM", "syncIdentity: replaced local identity with server canon for UIN $uin (was ${if (localWrapped.isEmpty()) "empty" else "stale"})")
+        return true
     }
 
     private suspend fun registerDevice(token: String, pubKey: String) {
