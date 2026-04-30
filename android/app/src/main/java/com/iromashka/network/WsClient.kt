@@ -176,8 +176,18 @@ class WsClient(
     }
 
     fun sendMessage(envelope: WsEnvelope) {
-        val json = gson.toJson(envelope)
-        sendBinary(json.encodeToByteArray())
+        // Сервер ждёт ClientPacket: {type:"Message", data:{...}}.
+        // Без обёртки serde_json не распарсит и сообщение тихо потеряется.
+        val payload = mapOf(
+            "type" to "Message",
+            "data" to mapOf(
+                "sender_uin" to envelope.sender_uin,
+                "receiver_uin" to envelope.receiver_uin,
+                "ciphertext" to envelope.ciphertext,
+                "timestamp" to envelope.timestamp
+            )
+        )
+        sendBinary(gson.toJson(payload).encodeToByteArray())
     }
 
     fun sendMultiDeviceMessage(senderUin: Long, receiverUin: Long, payloads: List<com.iromashka.crypto.CryptoManager.DevicePayload>) {
