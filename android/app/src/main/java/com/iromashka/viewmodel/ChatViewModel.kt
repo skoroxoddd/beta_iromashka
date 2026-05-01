@@ -193,18 +193,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 android.util.Log.d("ChatVM", "syncHistoryForChat $chatUin since=$lastLocal items=${items.size} relevant=${relevant.size}")
                 for (item in relevant) {
                     val isOutgoing = item.sender_uin == myUin
-                    val plaintext = if (isOutgoing) {
+                    val plaintext: String? = if (isOutgoing) {
                         // F3: outgoing — prefer sender_ciphertext (encrypted to my own pubkey).
-                        // Falls back to recipient ciphertext (won't decrypt with my privkey,
-                        // but kept as last-resort placeholder).
                         item.sender_ciphertext
                             ?.let { runCatching { CryptoManager.decryptMessage(it, privKey) }.getOrNull() }
                             ?: runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
-                            ?: "[не удалось расшифровать]"
                     } else {
                         runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
-                            ?: "[не удалось расшифровать]"
                     }
+                    if (plaintext == null) continue
                     // Only insert if not already present (by timestamp+uin)
                     val existing = msgDao.getByTimestampAndUins(item.timestamp, item.sender_uin, item.receiver_uin)
                     if (existing == null) {
@@ -323,6 +320,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         is WsEvent.Connected    -> {
                             _wsConnected.value = true
                             runCatching { contactDao.resetAllToOffline() }
+                            runCatching {
+                                val n = db.maintenanceDao().purgeUndecryptablePlaceholders()
+                                if (n > 0) android.util.Log.i("ChatVM", "purged $n undecryptable placeholders")
+                            }
                             ensureBotContact()
                             syncAllHistory()
                             syncPhoneContacts()
@@ -910,16 +911,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     val chatUin = if (item.sender_uin == myUin) item.receiver_uin else item.sender_uin
                     val isOutgoing = item.sender_uin == myUin
 
-                    val plaintext = if (isOutgoing) {
+                    val plaintext: String? = if (isOutgoing) {
                         // F3: prefer sender-copy ciphertext for outgoing.
                         item.sender_ciphertext
                             ?.let { runCatching { CryptoManager.decryptMessage(it, privKey) }.getOrNull() }
                             ?: runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
-                            ?: "[не удалось расшифровать]"
                     } else {
                         runCatching { CryptoManager.decryptMessage(item.ciphertext, privKey) }.getOrNull()
-                            ?: "[не удалось расшифровать]"
                     }
+                    // Skip messages we can't decrypt (старая ротация privkey — текст
+                    // уже не восстановим). Раньше вставляли "[не удалось расшифровать]"
+                    // под каждое — после re-sync чат заполнялся плейсхолдерами.
+                    if (plaintext == null) continue
 
                     val existing = msgDao.getByTimestampAndUins(item.timestamp, item.sender_uin, item.receiver_uin)
                     if (existing == null) {

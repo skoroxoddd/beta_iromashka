@@ -62,6 +62,13 @@ interface ContactDao {
     suspend fun resetAllToOffline()
 }
 
+/** One-shot cleanup helper: drop legacy placeholder rows. */
+@Dao
+interface MaintenanceDao {
+    @Query("DELETE FROM messages WHERE text = '[не удалось расшифровать]'")
+    suspend fun purgeUndecryptablePlaceholders(): Int
+}
+
 @Dao
 interface GroupMessageDao {
 

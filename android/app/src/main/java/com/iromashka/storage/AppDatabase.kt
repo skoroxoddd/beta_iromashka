@@ -16,6 +16,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun contactDao(): ContactDao
     abstract fun groupMessageDao(): GroupMessageDao
+    abstract fun maintenanceDao(): MaintenanceDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
