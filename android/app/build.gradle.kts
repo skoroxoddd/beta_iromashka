@@ -12,8 +12,8 @@ android {
         applicationId = "com.iromashka"
         minSdk = 26
         targetSdk = 34
-        versionCode = 45
-        versionName = "1.7.12"
+        versionCode = 46
+        versionName = "1.7.13"
 
         // Lint
         resourceConfigurations += listOf("ru", "en")

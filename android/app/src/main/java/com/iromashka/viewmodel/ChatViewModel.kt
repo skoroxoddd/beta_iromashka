@@ -714,26 +714,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 android.util.Log.d("ChatVM", "Inserted local msg to $toUin at $nowMs")
                 _scrollToBottom.value = System.currentTimeMillis()
                 if (ttlSec > 0) scheduleTtlDelete(toUin, nowMs, ttlSec)
-                // Save to server for history persistence (with F3 sender-copy for cross-device outbox).
-                val token = Prefs.getToken(ctx)
-                if (token.isNotEmpty()) {
-                    val myPub = Prefs.getPubKey(ctx)
-                    val senderCt = if (myPub.isNotEmpty()) {
-                        runCatching {
-                            val pub = CryptoManager.importPublicKey(myPub)
-                            CryptoManager.encryptMessage(payloadText, pub)
-                        }.getOrNull()
-                    } else null
-                    runCatching {
-                        api.saveSyncedMessage("Bearer $token", com.iromashka.network.SaveSyncedMessageRequest(
-                            sender_uin = myUin,
-                            receiver_uin = toUin,
-                            ciphertext = ciphertext,
-                            sender_ciphertext = senderCt,
-                            timestamp = System.currentTimeMillis()
-                        ))
-                    }
-                }
+                // NB: server already calls save_synced_message inside WS Message handler
+                // (websocket.rs MSG handler). Don't double-save from client — иначе в
+                // synced_messages две строки с разными timestamp (server now_millis vs
+                // client now), и при многоустройственном sync'е приёмник получает дубль.
+                // Sender self-archive через api.saveSyncedMessage потеряется — это
+                // приемлемо: текст уже в локальной БД отправителя.
             }.onFailure { err ->
                 android.util.Log.e("ChatVM", "SendMessage failed: ${err.message}")
                 _wsConnected.value = false
