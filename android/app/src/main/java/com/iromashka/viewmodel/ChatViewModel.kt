@@ -369,9 +369,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             }
                         }
                         is WsEvent.UserStatusReceived -> {
+                            android.util.Log.d("ChatVM", "UserStatus uin=${event.uin} status=${event.status}")
                             runCatching {
-                                contactDao.updateStatus(event.uin, event.status, System.currentTimeMillis())
-                            }
+                                val existing = contactDao.getByUin(event.uin)
+                                if (existing == null) {
+                                    contactDao.insert(ContactEntity(event.uin, "UIN ${event.uin}", status = event.status, lastSeen = System.currentTimeMillis()))
+                                } else {
+                                    contactDao.updateStatus(event.uin, event.status, System.currentTimeMillis())
+                                }
+                            }.onFailure { android.util.Log.w("ChatVM", "updateStatus failed: ${it.message}") }
                         }
                         is WsEvent.Error -> _wsConnected.value = false
                     }

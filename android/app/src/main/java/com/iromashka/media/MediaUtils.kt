@@ -74,8 +74,73 @@ object MediaUtils {
 
     fun isMediaTag(text: String): Boolean {
         val t = text.trimStart()
-        return t.startsWith("<img ") || t.startsWith("<audio ") || t.startsWith("<video ")
+        if (t.startsWith("<img ") || t.startsWith("<audio ") || t.startsWith("<video ")) return true
+        return false
     }
+
+    /** PWA E2E media tag: <img iromedia='{"u":"/uploads/...","kh":"...","ih":"...","m":"image/jpeg",...}'> */
+    data class IromediaMeta(
+        val url: String,
+        val keyBytes: ByteArray,
+        val ivBytes: ByteArray,
+        val mime: String
+    )
+
+    fun extractIromediaMeta(tag: String): IromediaMeta? = runCatching {
+        val attr = Regex("""iromedia\s*=\s*'([^']+)'""").find(tag)?.groupValues?.getOrNull(1)
+            ?: Regex("""iromedia\s*=\s*"([^"]+)"""").find(tag)?.groupValues?.getOrNull(1)
+            ?: return null
+        // PWA escapes single quotes as &#39; — undo before JSON parse.
+        val json = attr.replace("&#39;", "'").replace("&quot;", "\"")
+        val obj = org.json.JSONObject(json)
+        val url = obj.optString("u").ifEmpty { obj.optString("url") }
+        if (url.isEmpty()) return null
+        val keyHex = obj.optString("kh").ifEmpty { null }
+        val ivHex = obj.optString("ih").ifEmpty { null }
+        val keyB64 = obj.optString("k").ifEmpty { obj.optString("keyB64").ifEmpty { null } }
+        val ivB64 = obj.optString("i").ifEmpty { obj.optString("ivB64").ifEmpty { null } }
+        val keyBytes = when {
+            keyHex != null -> hexToBytes(keyHex)
+            keyB64 != null -> android.util.Base64.decode(keyB64, android.util.Base64.NO_WRAP)
+            else -> return null
+        } ?: return null
+        val ivBytes = when {
+            ivHex != null -> hexToBytes(ivHex)
+            ivB64 != null -> android.util.Base64.decode(ivB64, android.util.Base64.NO_WRAP)
+            else -> return null
+        } ?: return null
+        val mime = obj.optString("m").ifEmpty { obj.optString("mime").ifEmpty { "image/jpeg" } }
+        IromediaMeta(url, keyBytes, ivBytes, mime)
+    }.getOrNull()
+
+    private fun hexToBytes(hex: String): ByteArray? = runCatching {
+        if (hex.length % 2 != 0) return null
+        ByteArray(hex.length / 2) { i ->
+            hex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+        }
+    }.getOrNull()
+
+    /** Download `/uploads/...` blob, AES-GCM decrypt with iromedia key/iv, return plaintext bytes. */
+    suspend fun fetchAndDecryptIromedia(ctx: Context, meta: IromediaMeta): ByteArray? = runCatching {
+        val token = Prefs.getToken(ctx)
+        val absUrl = if (meta.url.startsWith("http")) meta.url else "https://iromashka.ru${meta.url}"
+        val req = okhttp3.Request.Builder()
+            .url(absUrl)
+            .apply { if (token.isNotEmpty()) header("Authorization", "Bearer $token") }
+            .build()
+        val resp = ApiService.okHttpClient.newCall(req).execute()
+        resp.use { r ->
+            if (!r.isSuccessful) {
+                Log.w(TAG, "iromedia fetch ${r.code}")
+                return@runCatching null
+            }
+            val ct = r.body?.bytes() ?: return@runCatching null
+            val keySpec = javax.crypto.spec.SecretKeySpec(meta.keyBytes, "AES")
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, javax.crypto.spec.GCMParameterSpec(128, meta.ivBytes))
+            cipher.doFinal(ct)
+        }
+    }.onFailure { Log.w(TAG, "iromedia decrypt failed: ${it.message}") }.getOrNull()
 
     fun extractSrc(tag: String): String? {
         val m = Regex("""src\s*=\s*"([^"]+)"""").find(tag) ?: return null

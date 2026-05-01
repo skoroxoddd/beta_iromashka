@@ -378,14 +378,26 @@ private fun GroupItemRow(
 @Composable
 private fun ContactItem(contact: ContactEntity, palette: com.iromashka.ui.theme.ThemePalette, onClick: () -> Unit) {
     val statusColor = when (contact.status) {
-        "Online" -> palette.onlineGreen
-        "Away"   -> androidx.compose.ui.graphics.Color(0xFFF59E0B)
-        else     -> palette.offlineGray
+        "Online"      -> palette.onlineGreen
+        "Away"        -> androidx.compose.ui.graphics.Color(0xFFF59E0B)
+        "Eating"      -> androidx.compose.ui.graphics.Color(0xFFFF7043)
+        "Working"     -> androidx.compose.ui.graphics.Color(0xFF7E57C2)
+        "Sleeping"    -> androidx.compose.ui.graphics.Color(0xFF5C6BC0)
+        "OnRoad"      -> androidx.compose.ui.graphics.Color(0xFF26A69A)
+        "Unavailable" -> androidx.compose.ui.graphics.Color(0xFFEF5350)
+        "Invisible", "Offline", "" -> palette.offlineGray
+        else          -> palette.offlineGray
     }
     val statusLabel = when (contact.status) {
-        "Online" -> "в сети"
-        "Away"   -> "отошёл"
-        else     -> "не в сети"
+        "Online"      -> "в сети"
+        "Away"        -> "отошёл"
+        "Eating"      -> "ем"
+        "Working"     -> "работаю"
+        "Sleeping"    -> "сплю"
+        "OnRoad"      -> "в дороге"
+        "Unavailable" -> "недоступен"
+        "Invisible", "Offline", "" -> "не в сети"
+        else          -> "не в сети"
     }
     // Deterministic avatar background from UIN
     val avatarColors = listOf(

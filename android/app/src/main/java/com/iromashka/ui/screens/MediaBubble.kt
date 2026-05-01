@@ -26,6 +26,26 @@ import java.io.FileOutputStream
 @Composable
 fun MediaBubble(tag: String, onTextFallback: @Composable (String) -> Unit) {
     val ctx = LocalContext.current
+
+    // E2E iromedia format: <img iromedia='{"u":"/uploads/...","kh":"...","ih":"...","m":"..."}'>
+    val iromedia = remember(tag) { MediaUtils.extractIromediaMeta(tag) }
+    if (iromedia != null) {
+        when {
+            iromedia.mime.startsWith("image/") -> {
+                IromediaImage(meta = iromedia, onTextFallback = onTextFallback)
+                return
+            }
+            iromedia.mime.startsWith("audio/") || iromedia.mime.startsWith("video/") -> {
+                IromediaAudioVideo(meta = iromedia, onTextFallback = onTextFallback)
+                return
+            }
+            else -> {
+                onTextFallback("[медиа: ${iromedia.mime}]")
+                return
+            }
+        }
+    }
+
     val src = MediaUtils.extractSrc(tag)
     if (src == null) { onTextFallback(tag); return }
     val mime = MediaUtils.extractMime(tag) ?: "application/octet-stream"
@@ -54,6 +74,70 @@ fun MediaBubble(tag: String, onTextFallback: @Composable (String) -> Unit) {
             else AudioPlayer(cachedUri = cachedUri)
         }
         else -> onTextFallback(tag)
+    }
+}
+
+@Composable
+private fun IromediaImage(meta: MediaUtils.IromediaMeta, onTextFallback: @Composable (String) -> Unit) {
+    val ctx = LocalContext.current
+    var bytes by remember(meta.url) { mutableStateOf<ByteArray?>(null) }
+    var failed by remember(meta.url) { mutableStateOf(false) }
+    LaunchedEffect(meta.url) {
+        val plain = MediaUtils.fetchAndDecryptIromedia(ctx, meta)
+        if (plain == null) failed = true else bytes = plain
+    }
+    val cached = bytes
+    when {
+        failed -> onTextFallback("[медиа: не загрузилось]")
+        cached == null -> Text(text = "загрузка медиа...", color = Color(0xFF888888))
+        else -> {
+            val request = ImageRequest.Builder(ctx)
+                .data(cached)
+                .size(720)
+                .crossfade(true)
+                .memoryCacheKey(meta.url.hashCode().toString())
+                .diskCacheKey(meta.url.hashCode().toString())
+                .build()
+            AsyncImage(
+                model = request,
+                contentDescription = "image",
+                modifier = Modifier
+                    .widthIn(max = 240.dp)
+                    .clip(RoundedCornerShape(8.dp))
+            )
+        }
+    }
+}
+
+@Composable
+private fun IromediaAudioVideo(meta: MediaUtils.IromediaMeta, onTextFallback: @Composable (String) -> Unit) {
+    val ctx = LocalContext.current
+    var cachedUri by remember(meta.url) { mutableStateOf<Uri?>(null) }
+    var failed by remember(meta.url) { mutableStateOf(false) }
+    LaunchedEffect(meta.url) {
+        val plain = MediaUtils.fetchAndDecryptIromedia(ctx, meta)
+        if (plain == null) { failed = true; return@LaunchedEffect }
+        val ext = when {
+            meta.mime.contains("mp4") -> "mp4"
+            meta.mime.contains("aac") -> "aac"
+            meta.mime.contains("webm") -> "webm"
+            meta.mime.contains("mpeg") -> "mp3"
+            meta.mime.contains("ogg") -> "ogg"
+            else -> "bin"
+        }
+        val dir = File(ctx.cacheDir, "media").apply { mkdirs() }
+        val name = "irm_${plain.contentHashCode()}.$ext"
+        val f = File(dir, name)
+        if (!f.exists() || f.length() != plain.size.toLong()) {
+            FileOutputStream(f).use { it.write(plain) }
+        }
+        cachedUri = Uri.fromFile(f)
+    }
+    val u = cachedUri
+    when {
+        failed -> onTextFallback("[медиа: не загрузилось]")
+        u == null -> Text(text = "загрузка медиа...", color = Color(0xFF888888))
+        else -> AudioPlayer(cachedUri = u)
     }
 }
 
