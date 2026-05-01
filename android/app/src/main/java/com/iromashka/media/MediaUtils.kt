@@ -142,29 +142,28 @@ object MediaUtils {
     }.getOrNull()
 
     /** Download `/uploads/...` blob, AES-GCM decrypt with iromedia key/iv, return plaintext bytes. */
-    suspend fun fetchAndDecryptIromedia(ctx: Context, meta: IromediaMeta): ByteArray? {
+    suspend fun fetchAndDecryptIromedia(ctx: Context, meta: IromediaMeta): ByteArray? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val absUrl = if (meta.url.startsWith("http")) meta.url else "https://iromashka.ru${meta.url}"
         Log.i(TAG, "iromedia start url=$absUrl key.len=${meta.keyBytes.size} iv.len=${meta.ivBytes.size} mime=${meta.mime}")
-        // PWA fetches /uploads/* WITHOUT auth header — match that to avoid server 401 returning HTML.
         val req = okhttp3.Request.Builder().url(absUrl).build()
         val ct: ByteArray = try {
             ApiService.okHttpClient.newCall(req).execute().use { r ->
                 Log.i(TAG, "iromedia http=${r.code} ct-type=${r.header("Content-Type")} ct-len=${r.header("Content-Length")}")
                 if (!r.isSuccessful) {
                     Log.w(TAG, "iromedia fetch failed code=${r.code}")
-                    return null
+                    return@withContext null
                 }
                 r.body?.bytes() ?: run {
                     Log.w(TAG, "iromedia empty body")
-                    return null
+                    return@withContext null
                 }
             }
         } catch (e: Throwable) {
             Log.e(TAG, "iromedia http exception ${e.javaClass.simpleName} ${e.message}")
-            return null
+            return@withContext null
         }
         Log.i(TAG, "iromedia got ct.size=${ct.size} head=${ct.take(8).joinToString(",") { (it.toInt() and 0xff).toString(16) }}")
-        return try {
+        try {
             val keySpec = javax.crypto.spec.SecretKeySpec(meta.keyBytes, "AES")
             val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, javax.crypto.spec.GCMParameterSpec(128, meta.ivBytes))
