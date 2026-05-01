@@ -57,6 +57,9 @@ interface ContactDao {
 
     @Query("UPDATE contacts SET status = :status, lastSeen = :lastSeen WHERE uin = :uin")
     suspend fun updateStatus(uin: Long, status: String, lastSeen: Long = System.currentTimeMillis())
+
+    @Query("UPDATE contacts SET status = 'Offline'")
+    suspend fun resetAllToOffline()
 }
 
 @Dao

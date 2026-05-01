@@ -322,6 +322,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     when (event) {
                         is WsEvent.Connected    -> {
                             _wsConnected.value = true
+                            runCatching { contactDao.resetAllToOffline() }
                             ensureBotContact()
                             syncAllHistory()
                             syncPhoneContacts()

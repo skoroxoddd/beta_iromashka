@@ -141,8 +141,30 @@ object MediaUtils {
         }
     }.getOrNull()
 
+    // In-memory cache of decrypted bytes, keyed by url+keyHex.
+    // Avoids re-downloading and re-decrypting on every recomposition.
+    private val memCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+    private val inFlight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<ByteArray?>>()
+
+    private fun cacheKey(meta: IromediaMeta): String = meta.url + "#" + bytesToHex(meta.keyBytes)
+
     /** Download `/uploads/...` blob, AES-GCM decrypt with iromedia key/iv, return plaintext bytes. */
-    suspend fun fetchAndDecryptIromedia(ctx: Context, meta: IromediaMeta): ByteArray? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    suspend fun fetchAndDecryptIromedia(ctx: Context, meta: IromediaMeta): ByteArray? {
+        val key = cacheKey(meta)
+        memCache[key]?.let { return it }
+        // Coalesce concurrent requests for the same key.
+        val existing = inFlight[key]
+        if (existing != null) return existing.await()
+        return kotlinx.coroutines.coroutineScope {
+            val deferred = kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+                doFetchAndDecrypt(ctx, meta)?.also { memCache[key] = it }
+            }
+            inFlight[key] = deferred
+            try { deferred.await() } finally { inFlight.remove(key) }
+        }
+    }
+
+    private fun doFetchAndDecrypt(ctx: Context, meta: IromediaMeta): ByteArray? {
         val absUrl = if (meta.url.startsWith("http")) meta.url else "https://iromashka.ru${meta.url}"
         Log.i(TAG, "iromedia start url=$absUrl key.len=${meta.keyBytes.size} iv.len=${meta.ivBytes.size} mime=${meta.mime}")
         val req = okhttp3.Request.Builder().url(absUrl).build()
@@ -151,19 +173,19 @@ object MediaUtils {
                 Log.i(TAG, "iromedia http=${r.code} ct-type=${r.header("Content-Type")} ct-len=${r.header("Content-Length")}")
                 if (!r.isSuccessful) {
                     Log.w(TAG, "iromedia fetch failed code=${r.code}")
-                    return@withContext null
+                    return null
                 }
                 r.body?.bytes() ?: run {
                     Log.w(TAG, "iromedia empty body")
-                    return@withContext null
+                    return null
                 }
             }
         } catch (e: Throwable) {
             Log.e(TAG, "iromedia http exception ${e.javaClass.simpleName} ${e.message}")
-            return@withContext null
+            return null
         }
         Log.i(TAG, "iromedia got ct.size=${ct.size} head=${ct.take(8).joinToString(",") { (it.toInt() and 0xff).toString(16) }}")
-        try {
+        return try {
             val keySpec = javax.crypto.spec.SecretKeySpec(meta.keyBytes, "AES")
             val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, javax.crypto.spec.GCMParameterSpec(128, meta.ivBytes))
