@@ -19,8 +19,8 @@ object MediaUtils {
     private const val MAX_BYTES = 25 * 1024 * 1024
 
     /**
-     * F2: upload blob via /api/upload, return server URL embedded in <img>/<audio>/<video> tag.
-     * Falls back to null on error — caller handles UI feedback.
+     * F2: AES-GCM encrypt → upload ciphertext via /api/upload → return iromedia tag (E2E).
+     * Matches PWA buildIromediaTag: <img iromedia='{"u":...,"kh":...,"ih":...,"m":...,"s":...,"n":...}'>
      */
     suspend fun imageUriToHtmlTag(ctx: Context, uri: Uri): String? = runCatching {
         val mime = ctx.contentResolver.getType(uri) ?: "image/jpeg"
@@ -29,8 +29,7 @@ object MediaUtils {
             Log.w(TAG, "Image too large: ${bytes.size}b — refusing")
             return null
         }
-        val url = uploadBytes(ctx, bytes, mime, "image.${extOfMime(mime, "jpg")}") ?: return null
-        "<img src=\"$url\" />"
+        encryptAndUpload(ctx, bytes, mime, "img", "image.${extOfMime(mime, "jpg")}")
     }.getOrNull()
 
     suspend fun audioFileToHtmlTag(ctx: Context, file: File, mime: String = "audio/mp4"): String? = runCatching {
@@ -39,25 +38,47 @@ object MediaUtils {
             Log.w(TAG, "Audio too large: ${bytes.size}b — refusing")
             return null
         }
-        val url = uploadBytes(ctx, bytes, mime, "audio.${extOfMime(mime, "mp4")}") ?: return null
-        "<audio src=\"$url\" controls />"
+        encryptAndUpload(ctx, bytes, mime, "audio", "audio.${extOfMime(mime, "mp4")}")
     }.getOrNull()
 
-    private suspend fun uploadBytes(ctx: Context, bytes: ByteArray, mime: String, fileName: String): String? {
+    private suspend fun encryptAndUpload(ctx: Context, plain: ByteArray, mime: String, tagName: String, fileName: String): String? {
         val token = Prefs.getToken(ctx)
-        if (token.isEmpty()) {
-            Log.w(TAG, "uploadBytes: no auth token")
-            return null
-        }
+        if (token.isEmpty()) { Log.w(TAG, "encryptAndUpload: no token"); return null }
+        val keyRaw = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
+        val iv = ByteArray(12).also { java.security.SecureRandom().nextBytes(it) }
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE,
+            javax.crypto.spec.SecretKeySpec(keyRaw, "AES"),
+            javax.crypto.spec.GCMParameterSpec(128, iv))
+        val ct = cipher.doFinal(plain)
+        Log.i(TAG, "encryptAndUpload plain=${plain.size} ct=${ct.size} mime=$mime")
         return runCatching {
-            val rb = bytes.toRequestBody(mime.toMediaTypeOrNull(), 0, bytes.size)
-            val part = MultipartBody.Part.createFormData("file", fileName, rb)
+            val rb = ct.toRequestBody("application/octet-stream".toMediaTypeOrNull(), 0, ct.size)
+            val part = MultipartBody.Part.createFormData("file", "m.bin", rb)
             val expected = "1".toRequestBody("text/plain".toMediaTypeOrNull())
             val resp = ApiService.api.uploadBlob("Bearer $token", part, expected)
-            resp.url
-        }.onFailure {
-            Log.e(TAG, "uploadBytes failed: ${it.message}")
-        }.getOrNull()
+            val keyHex = bytesToHex(keyRaw)
+            val ivHex = bytesToHex(iv)
+            val meta = org.json.JSONObject()
+                .put("u", resp.url)
+                .put("kh", keyHex)
+                .put("ih", ivHex)
+                .put("m", mime)
+                .put("s", plain.size)
+                .put("n", fileName)
+            val attr = meta.toString().replace("'", "&#39;")
+            "<$tagName iromedia='$attr'></$tagName>"
+        }.onFailure { Log.e(TAG, "upload failed: ${it.javaClass.simpleName} ${it.message}") }.getOrNull()
+    }
+
+    private fun bytesToHex(b: ByteArray): String {
+        val sb = StringBuilder(b.size * 2)
+        for (x in b) {
+            val v = x.toInt() and 0xff
+            if (v < 0x10) sb.append('0')
+            sb.append(v.toString(16))
+        }
+        return sb.toString()
     }
 
     private fun extOfMime(mime: String, fallback: String): String = when {
@@ -121,26 +142,40 @@ object MediaUtils {
     }.getOrNull()
 
     /** Download `/uploads/...` blob, AES-GCM decrypt with iromedia key/iv, return plaintext bytes. */
-    suspend fun fetchAndDecryptIromedia(ctx: Context, meta: IromediaMeta): ByteArray? = runCatching {
-        val token = Prefs.getToken(ctx)
+    suspend fun fetchAndDecryptIromedia(ctx: Context, meta: IromediaMeta): ByteArray? {
         val absUrl = if (meta.url.startsWith("http")) meta.url else "https://iromashka.ru${meta.url}"
-        val req = okhttp3.Request.Builder()
-            .url(absUrl)
-            .apply { if (token.isNotEmpty()) header("Authorization", "Bearer $token") }
-            .build()
-        val resp = ApiService.okHttpClient.newCall(req).execute()
-        resp.use { r ->
-            if (!r.isSuccessful) {
-                Log.w(TAG, "iromedia fetch ${r.code}")
-                return@runCatching null
+        Log.i(TAG, "iromedia start url=$absUrl key.len=${meta.keyBytes.size} iv.len=${meta.ivBytes.size} mime=${meta.mime}")
+        // PWA fetches /uploads/* WITHOUT auth header — match that to avoid server 401 returning HTML.
+        val req = okhttp3.Request.Builder().url(absUrl).build()
+        val ct: ByteArray = try {
+            ApiService.okHttpClient.newCall(req).execute().use { r ->
+                Log.i(TAG, "iromedia http=${r.code} ct-type=${r.header("Content-Type")} ct-len=${r.header("Content-Length")}")
+                if (!r.isSuccessful) {
+                    Log.w(TAG, "iromedia fetch failed code=${r.code}")
+                    return null
+                }
+                r.body?.bytes() ?: run {
+                    Log.w(TAG, "iromedia empty body")
+                    return null
+                }
             }
-            val ct = r.body?.bytes() ?: return@runCatching null
+        } catch (e: Throwable) {
+            Log.e(TAG, "iromedia http exception ${e.javaClass.simpleName} ${e.message}")
+            return null
+        }
+        Log.i(TAG, "iromedia got ct.size=${ct.size} head=${ct.take(8).joinToString(",") { (it.toInt() and 0xff).toString(16) }}")
+        return try {
             val keySpec = javax.crypto.spec.SecretKeySpec(meta.keyBytes, "AES")
             val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, javax.crypto.spec.GCMParameterSpec(128, meta.ivBytes))
-            cipher.doFinal(ct)
+            val pt = cipher.doFinal(ct)
+            Log.i(TAG, "iromedia decrypt OK pt.size=${pt.size}")
+            pt
+        } catch (e: Throwable) {
+            Log.e(TAG, "iromedia decrypt EX ${e.javaClass.simpleName} msg=${e.message} ct.size=${ct.size}")
+            null
         }
-    }.onFailure { Log.w(TAG, "iromedia decrypt failed: ${it.message}") }.getOrNull()
+    }
 
     fun extractSrc(tag: String): String? {
         val m = Regex("""src\s*=\s*"([^"]+)"""").find(tag) ?: return null
