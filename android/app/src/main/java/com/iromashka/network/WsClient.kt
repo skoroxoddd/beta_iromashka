@@ -268,6 +268,7 @@ class WsClient(
 
         override fun onMessage(webSocket: WebSocket, text: String) {
             // Server sometimes sends text frames (e.g. status messages)
+            Log.d(TAG, "RX txt ${text.length}c head=${text.take(80).replace("\n"," ")}")
             handleText(text)
         }
 
@@ -277,10 +278,14 @@ class WsClient(
 
             val decoded = Transport.decode(raw, sk)
             if (decoded == null) {
-                Log.w(TAG, "Failed to decode frame ver=0x${raw.getOrNull(2)?.toString(16)}")
+                Log.w(TAG, "Failed to decode frame ver=0x${raw.getOrNull(2)?.toString(16)} sz=${raw.size} sk=${if (sk == null) "null" else "ok"}")
                 return
             }
-            val text = runCatching { decoded.decodeToString() }.getOrNull() ?: return
+            val text = runCatching { decoded.decodeToString() }.getOrNull() ?: run {
+                Log.w(TAG, "Frame decoded but text decode failed sz=${decoded.size}")
+                return
+            }
+            Log.d(TAG, "RX bin sz=${raw.size} dec=${text.length} head=${text.take(80).replace("\n"," ")}")
             handleText(text)
         }
 
@@ -342,6 +347,7 @@ class WsClient(
             // 2. WsEnvelope (incoming message)
             val env = tryParseEnvelope(text)
             if (env != null) {
+                Log.i(TAG, "RX envelope sender=${env.sender_uin} receiver=${env.receiver_uin} ct_len=${env.ciphertext.length}")
                 scope.launch { _events.emit(WsEvent.MessageReceived(env)) }
                 return
             }

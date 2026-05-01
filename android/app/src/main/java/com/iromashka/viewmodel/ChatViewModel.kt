@@ -133,6 +133,45 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         syncHistoryForChat(chatUin)
     }
 
+    // Try refresh JWT inline. Returns new token on success, null on failure.
+    // Used by sync paths that hit 401 mid-session.
+    private suspend fun tryRefreshTokenSync(): String? {
+        val refresh = Prefs.getRefreshToken(ctx)
+        if (refresh.isEmpty()) return null
+        return runCatching {
+            val resp = api.refresh("Bearer $refresh", com.iromashka.network.RefreshRequest(refresh))
+            Prefs.updateToken(ctx, resp.token)
+            Prefs.updateRefreshToken(ctx, resp.refresh_token)
+            Prefs.updateTokenTimestamp(ctx, System.currentTimeMillis())
+            android.util.Log.i("ChatVM", "JWT refreshed inline")
+            resp.token
+        }.onFailure { android.util.Log.w("ChatVM", "Inline JWT refresh failed: ${it.message}") }
+            .getOrNull()
+    }
+
+    private suspend fun fetchSyncedWithRetry(token: String, since: Long, limit: Int = 500): Pair<String, List<com.iromashka.network.SyncedMessageItem>>? {
+        var bearer = token
+        return runCatching {
+            api.getSyncedMessages("Bearer $bearer", since = since, limit = limit)
+        }.fold(
+            onSuccess = { Pair(bearer, it) },
+            onFailure = { e ->
+                val is401 = (e as? retrofit2.HttpException)?.code() == 401
+                if (!is401) {
+                    android.util.Log.w("ChatVM", "sync failed (no retry): ${e.message}")
+                    return null
+                }
+                android.util.Log.w("ChatVM", "sync got 401 — refreshing token and retrying")
+                val fresh = tryRefreshTokenSync() ?: return null
+                bearer = fresh
+                runCatching {
+                    api.getSyncedMessages("Bearer $bearer", since = since, limit = limit)
+                }.onFailure { android.util.Log.w("ChatVM", "sync retry failed: ${it.message}") }
+                    .getOrNull()?.let { Pair(bearer, it) }
+            }
+        )
+    }
+
     // Fetch history from server for a specific chat
     private fun syncHistoryForChat(chatUin: Long) {
         val myUin = Prefs.getUin(ctx)
@@ -144,12 +183,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             runCatching {
                 // Get latest local timestamp to only fetch newer messages
                 val lastLocal = msgDao.getLastMessage(chatUin)?.timestamp ?: 0L
-                val items = api.getSyncedMessages("Bearer $token", since = lastLocal)
+                val pair = fetchSyncedWithRetry(token, since = lastLocal) ?: return@runCatching
+                val items = pair.second
                 // Filter only messages related to this chat
                 val relevant = items.filter {
                     (it.sender_uin == chatUin && it.receiver_uin == myUin) ||
                     (it.sender_uin == myUin && it.receiver_uin == chatUin)
                 }
+                android.util.Log.d("ChatVM", "syncHistoryForChat $chatUin since=$lastLocal items=${items.size} relevant=${relevant.size}")
                 for (item in relevant) {
                     val isOutgoing = item.sender_uin == myUin
                     val plaintext = if (isOutgoing) {
@@ -319,9 +360,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             msgDao.updateText(event.timestamp, event.senderUin, event.receiverUin, plain)
                         }
                         is WsEvent.PubkeyChanged -> {
-                            // Server says someone reset their identity — drop cached pubkey so next send refetches.
-                            pubkeyCache.remove(event.uin)
-                            android.util.Log.i("ChatVM", "pubkey_changed → invalidated cache for ${event.uin}")
+                            val myUin = Prefs.getUin(ctx)
+                            if (event.uin == myUin) {
+                                android.util.Log.w("ChatVM", "pubkey_changed for SELF UIN $myUin — ignoring (would invalidate own cache)")
+                            } else {
+                                pubkeyCache.remove(event.uin)
+                                android.util.Log.i("ChatVM", "pubkey_changed → invalidated cache for ${event.uin}")
+                            }
                         }
                         is WsEvent.UserStatusReceived -> {
                             runCatching {
@@ -521,11 +566,22 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun handleIncoming(env: WsEnvelope) {
         val myUin = Prefs.getUin(ctx)
-        val privKey = myPrivKey ?: return
+        val privKey = myPrivKey
+        if (privKey == null) {
+            android.util.Log.e("ChatVM", "handleIncoming: privKey is NULL — message dropped sender=${env.sender_uin} ts=${env.timestamp}")
+            return
+        }
+        android.util.Log.i("ChatVM", "handleIncoming sender=${env.sender_uin} receiver=${env.receiver_uin} ct_len=${env.ciphertext.length} ts=${env.timestamp}")
 
         val raw = runCatching {
             CryptoManager.decryptMessage(env.ciphertext, privKey)
-        }.getOrElse { "[не удалось расшифровать]" } ?: "[не удалось расшифровать]"
+        }.onFailure { e ->
+            android.util.Log.w("ChatVM", "handleIncoming decrypt FAILED: ${e.message}")
+        }.getOrElse { "[не удалось расшифровать]" } ?: run {
+            android.util.Log.w("ChatVM", "handleIncoming decrypt returned null")
+            "[не удалось расшифровать]"
+        }
+        android.util.Log.d("ChatVM", "handleIncoming decrypted len=${raw.length}")
 
         // Unwrap D5 envelope: {"t":"...","_ttl":N,...}
         var displayText = raw
@@ -541,17 +597,24 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         val chatUin = if (env.sender_uin == myUin) env.receiver_uin else env.sender_uin
-        val nowMs = System.currentTimeMillis()
+        // Use server-provided timestamp so msgs ordering matches server, and dedup by ts works.
+        val msgTs = if (env.timestamp > 0) env.timestamp else System.currentTimeMillis()
+        val existing = msgDao.getByTimestampAndUins(msgTs, env.sender_uin, env.receiver_uin)
+        if (existing != null) {
+            android.util.Log.d("ChatVM", "handleIncoming dup ts=$msgTs — skip insert")
+            return
+        }
         msgDao.insertMessage(MessageEntity(
             chatUin = chatUin,
             senderUin = env.sender_uin,
             receiverUin = env.receiver_uin,
             text = displayText,
-            timestamp = nowMs,
-            isOutgoing = false,
+            timestamp = msgTs,
+            isOutgoing = env.sender_uin == myUin,
             isE2E = true
         ))
-        if (ttlSec > 0) scheduleTtlDelete(chatUin, nowMs, ttlSec)
+        android.util.Log.i("ChatVM", "handleIncoming inserted chat=$chatUin ts=$msgTs ttl=$ttlSec")
+        if (ttlSec > 0) scheduleTtlDelete(chatUin, msgTs, ttlSec)
     }
 
     private suspend fun handleGroupIncoming(event: WsEvent.GroupMessageReceived) {
@@ -847,7 +910,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         viewModelScope.launch {
             runCatching {
-                val items = api.getSyncedMessages("Bearer $token", since = 0, limit = 1000)
+                val pair = fetchSyncedWithRetry(token, since = 0, limit = 1000) ?: return@runCatching
+                val items = pair.second
+                android.util.Log.d("ChatVM", "syncAllHistory items=${items.size}")
                 for (item in items) {
                     val chatUin = if (item.sender_uin == myUin) item.receiver_uin else item.sender_uin
                     val isOutgoing = item.sender_uin == myUin
