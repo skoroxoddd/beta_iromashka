@@ -416,18 +416,29 @@ private fun maybeOfferBiometricEnroll(activity: FragmentActivity?, ctx: android.
 
     // Wrap "<unlock_token>\n<pin>" together — biometric unlocks both at once.
     val payload = (plainToken + "\n" + pin).toByteArray(Charsets.UTF_8)
-    com.iromashka.crypto.BiometricKeystore.wrapWithBiometric(
-        activity = activity,
-        plaintext = payload,
-        title = "АйРомашка",
-        subtitle = "Включить вход по биометрии?",
-        onSuccess = { ct, iv ->
-            Prefs.setUnlockToken(ctx, wrapped = ct, iv = iv, expiresAt = expires)
-            Prefs.setBiometricEnabled(ctx, true)
-            android.widget.Toast.makeText(ctx, "Биометрия включена", android.widget.Toast.LENGTH_SHORT).show()
-        },
-        onFail = { /* user declined — keep PLAIN token, will retry at next session */
-            Prefs.setBiometricEnabled(ctx, false)
-        }
-    )
+    // Postpone until after navigation/UI settles — иначе BiometricPrompt диалог
+    // открывается одновременно с переходом на "contacts" и закрывается на смене
+    // композиции, пользователь видит "мигнуло окошко с пальцем" и больше ничего.
+    activity.window.decorView.postDelayed({
+        com.iromashka.crypto.BiometricKeystore.wrapWithBiometric(
+            activity = activity,
+            plaintext = payload,
+            title = "АйРомашка",
+            subtitle = "Включить вход по биометрии?",
+            onSuccess = { ct, iv ->
+                Prefs.setUnlockToken(ctx, wrapped = ct, iv = iv, expiresAt = expires)
+                Prefs.setBiometricEnabled(ctx, true)
+                android.widget.Toast.makeText(ctx, "Биометрия включена", android.widget.Toast.LENGTH_SHORT).show()
+            },
+            onFail = { reason ->
+                android.util.Log.w("Biometric", "enroll failed: $reason")
+                // Если пользователь отменил/диалог закрылся не по своей воле —
+                // снимаем флаг "уже спросили", чтобы предложить снова при следующем логине.
+                if (reason.contains("err 10") || reason.contains("err 13") || reason.contains("user")) {
+                    com.iromashka.storage.Prefs.simplePrefs(ctx).edit().putBoolean("biometric_prompted", false).apply()
+                }
+                Prefs.setBiometricEnabled(ctx, false)
+            }
+        )
+    }, 600L)
 }

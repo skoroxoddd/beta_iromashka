@@ -28,7 +28,7 @@ object Prefs {
         )
     }
     
-    private fun simplePrefs(ctx: Context): SharedPreferences =
+    fun simplePrefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(NAME_SIMPLE, Context.MODE_PRIVATE)
 
     fun saveSession(ctx: Context, uin: Long, nickname: String, token: String,
