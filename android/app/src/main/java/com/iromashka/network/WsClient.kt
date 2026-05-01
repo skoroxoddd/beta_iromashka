@@ -269,7 +269,7 @@ class WsClient(
         override fun onMessage(webSocket: WebSocket, text: String) {
             // Server sometimes sends text frames (e.g. status messages)
             Log.d(TAG, "RX txt ${text.length}c head=${text.take(80).replace("\n"," ")}")
-            handleText(text)
+            handleText(stripJsonPadding(text))
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
@@ -286,7 +286,35 @@ class WsClient(
                 return
             }
             Log.d(TAG, "RX bin sz=${raw.size} dec=${text.length} head=${text.take(80).replace("\n"," ")}")
-            handleText(text)
+            handleText(stripJsonPadding(text))
+        }
+
+        // Server v4 frames pad ciphertext with random bytes after JSON.
+        // ChaCha20-decrypt restores JSON + tail noise, which kills JSONObject/Gson.
+        // Trim to the first balanced top-level {...} object, respecting JSON strings.
+        private fun stripJsonPadding(text: String): String {
+            if (text.isEmpty() || text[0] != '{') return text
+            var depth = 0
+            var inStr = false
+            var escape = false
+            for (i in text.indices) {
+                val c = text[i]
+                if (inStr) {
+                    if (escape) { escape = false }
+                    else if (c == '\\') { escape = true }
+                    else if (c == '"') { inStr = false }
+                } else {
+                    when (c) {
+                        '"' -> inStr = true
+                        '{' -> depth++
+                        '}' -> {
+                            depth--
+                            if (depth == 0) return text.substring(0, i + 1)
+                        }
+                    }
+                }
+            }
+            return text
         }
 
         private fun handleText(text: String) {
