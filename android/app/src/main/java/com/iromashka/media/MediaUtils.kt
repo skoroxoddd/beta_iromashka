@@ -3,6 +3,8 @@ package com.iromashka.media
 import android.content.Context
 import android.media.MediaRecorder
 import android.net.Uri
+import kotlinx.coroutines.async
+import kotlinx.coroutines.Deferred
 import android.os.Build
 import android.util.Log
 import com.iromashka.network.ApiService
@@ -144,7 +146,7 @@ object MediaUtils {
     // In-memory cache of decrypted bytes, keyed by url+keyHex.
     // Avoids re-downloading and re-decrypting on every recomposition.
     private val memCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
-    private val inFlight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<ByteArray?>>()
+    private val inFlight = java.util.concurrent.ConcurrentHashMap<String, Deferred<ByteArray?>>()
 
     private fun cacheKey(meta: IromediaMeta): String = meta.url + "#" + bytesToHex(meta.keyBytes)
 
@@ -156,7 +158,7 @@ object MediaUtils {
         val existing = inFlight[key]
         if (existing != null) return existing.await()
         return kotlinx.coroutines.coroutineScope {
-            val deferred = kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+            val deferred = async(kotlinx.coroutines.Dispatchers.IO) {
                 doFetchAndDecrypt(ctx, meta)?.also { memCache[key] = it }
             }
             inFlight[key] = deferred
