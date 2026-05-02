@@ -1,7 +1,5 @@
 package com.iromashka.ui.screens
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -23,6 +21,8 @@ import com.iromashka.crypto.CryptoManager
 import com.iromashka.network.ApiService
 import com.iromashka.network.RecoverySaveRequest
 import com.iromashka.storage.Prefs
+import com.iromashka.ui.SecureScreen
+import com.iromashka.ui.copySensitive
 import kotlinx.coroutines.launch
 
 private enum class GenStage { Intro, ShowPhrase, Confirm, Pin, Saving, Done }
@@ -30,6 +30,7 @@ private enum class GenStage { Intro, ShowPhrase, Confirm, Pin, Saving, Done }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GenerateMnemonicScreen(onBack: () -> Unit) {
+    SecureScreen()
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val uin = Prefs.getUin(ctx)
@@ -145,8 +146,10 @@ fun GenerateMnemonicScreen(onBack: () -> Unit) {
                     }
                     OutlinedButton(
                         onClick = {
-                            val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("recovery", phrase))
+                            copySensitive(ctx, "recovery", phrase)
+                            android.widget.Toast.makeText(ctx,
+                                "Скопировано (буфер очистится через 60с)",
+                                android.widget.Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {

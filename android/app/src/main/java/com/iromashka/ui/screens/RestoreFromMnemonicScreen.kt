@@ -22,6 +22,7 @@ import com.iromashka.network.RecoveryInitRequest
 import com.iromashka.network.RecoveryInitResponse
 import com.iromashka.network.RecoveryLookupRequest
 import com.iromashka.storage.Prefs
+import com.iromashka.ui.SecureScreen
 import kotlinx.coroutines.launch
 
 private enum class RestoreStage { Form, NewPin, Done }
@@ -32,6 +33,7 @@ fun RestoreFromMnemonicScreen(
     onSuccess: () -> Unit,
     onBack: () -> Unit
 ) {
+    SecureScreen()
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
 

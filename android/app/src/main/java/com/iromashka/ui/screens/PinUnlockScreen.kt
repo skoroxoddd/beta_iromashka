@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.*
 import com.iromashka.R
 import com.iromashka.crypto.BiometricKeystore
 import com.iromashka.storage.Prefs
+import com.iromashka.ui.SecureScreen
 import com.iromashka.ui.theme.LocalThemePalette
 import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.delay
@@ -29,6 +30,7 @@ fun PinUnlockScreen(
     onForgotPin: () -> Unit = {},
     onBiometricUnlock: ((String, String) -> Unit)? = null,
 ) {
+    SecureScreen()
     val p = LocalThemePalette.current
     val ctx = LocalContext.current
     var pin by remember { mutableStateOf("") }

@@ -1,8 +1,5 @@
 package com.iromashka.ui.screens
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -17,6 +14,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.*
+import com.iromashka.ui.SecureScreen
+import com.iromashka.ui.copySensitive
 import com.iromashka.ui.theme.LocalThemePalette
 
 @Composable
@@ -24,6 +23,7 @@ fun UinRevealScreen(
     uin: Long,
     onContinue: () -> Unit
 ) {
+    SecureScreen()
     val p = LocalThemePalette.current
     val ctx = LocalContext.current
 
@@ -66,9 +66,8 @@ fun UinRevealScreen(
                 Spacer(Modifier.height(20.dp))
                 OutlinedButton(
                     onClick = {
-                        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("UIN", uin.toString()))
-                        Toast.makeText(ctx, "UIN скопирован", Toast.LENGTH_SHORT).show()
+                        copySensitive(ctx, "UIN", uin.toString())
+                        Toast.makeText(ctx, "UIN скопирован (очистится через 60с)", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.fillMaxWidth().height(44.dp),
                     shape = RoundedCornerShape(10.dp)

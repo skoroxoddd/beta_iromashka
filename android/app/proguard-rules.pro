@@ -72,3 +72,17 @@
 # Misc
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn com.google.crypto.tink.**
+
+# Argon2kt JNI
+-keep class com.lambdapioneer.argon2kt.** { *; }
+-dontwarn com.lambdapioneer.argon2kt.**
+
+# H2: strip Log.v/d/i/w from release. Log.e оставляем (для Sentry/crashlytics).
+# assumenosideeffects работает только когда minifyEnabled=true.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+    public static int w(...);
+    public static boolean isLoggable(java.lang.String, int);
+}
