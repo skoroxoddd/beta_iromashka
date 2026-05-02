@@ -100,6 +100,11 @@ object ApiService {
             @Body body: IdentityResetRequest
         ): okhttp3.ResponseBody
 
+        @POST("identity/reset/challenge")
+        suspend fun identityResetChallenge(
+            @Header("Authorization") token: String
+        ): IdentityResetChallengeResponse
+
         @POST("update-pubkey")
         suspend fun updatePubkey(
             @Header("Authorization") token: String,
@@ -273,7 +278,8 @@ data class TypingPayload(val sender_uin: Long, val receiver_uin: Long, val is_ty
 data class RefreshRequest(val refresh_token: String)
 data class RefreshResponse(val token: String, val refresh_token: String)
 
-data class IdentityResetRequest(val uin: Long, val pin: String)
+data class IdentityResetRequest(val uin: Long, val pin: String, val nonce: String)
+data class IdentityResetChallengeResponse(val nonce: String, val expires_at: Long)
 
 data class RecoverySaveRequest(
     val wrapped_with_seed: String,

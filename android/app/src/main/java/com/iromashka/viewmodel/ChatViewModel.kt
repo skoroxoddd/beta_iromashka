@@ -274,7 +274,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     ?: run {
                         // No PIN-wrapped key on server, no local copy — auto-reset identity and bootstrap fresh.
                         android.util.Log.w("ChatVM", "Auto-reset: server has identity but no wrapped key for UIN $uin")
-                        runCatching { api.identityReset("Bearer ${resp.token}", com.iromashka.network.IdentityResetRequest(uin, pin)) }
+                        runCatching {
+                            val ch = api.identityResetChallenge("Bearer ${resp.token}")
+                            api.identityReset("Bearer ${resp.token}", com.iromashka.network.IdentityResetRequest(uin, pin, ch.nonce))
+                        }
                         // Generate new keypair locally
                         val kp = CryptoManager.generateKeyPair()
                         val pubB64 = CryptoManager.exportPublicKey(kp.public)
@@ -735,7 +738,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (token.isEmpty() || myUin <= 0) { onResult(false, "Не авторизован"); return }
         viewModelScope.launch {
             runCatching {
-                api.identityReset("Bearer $token", com.iromashka.network.IdentityResetRequest(myUin, pin))
+                val ch = api.identityResetChallenge("Bearer $token")
+                api.identityReset("Bearer $token", com.iromashka.network.IdentityResetRequest(myUin, pin, ch.nonce))
             }.onSuccess {
                 // Wipe local identity so next login bootstraps fresh
                 Prefs.updateWrappedPriv(ctx, "")
