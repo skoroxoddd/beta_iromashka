@@ -39,6 +39,16 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
+        // C2 migration: старые сборки писали "PLAIN:<unlock_token>" в Prefs до момента
+        // enroll-а биометрии. С новой логики токен в plain не хранится. Чистим остатки.
+        runCatching {
+            val w = Prefs.getUnlockTokenWrapped(this)
+            if (w.startsWith("PLAIN:")) {
+                Prefs.clearUnlockToken(this)
+                android.util.Log.i("MainActivity", "Cleared legacy PLAIN: unlock token")
+            }
+        }
+
         requestNotifPermission()
         requestBatteryExemption()
         startBackgroundService()
@@ -118,7 +128,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                         if (ok) {
                             chatVm.connectWs()
                             // Offer biometric enrollment if available and not yet asked
-                            if (activity != null) maybeOfferBiometricEnroll(activity, ctx, pin)
+                            if (activity != null) maybeOfferBiometricEnroll(activity, ctx, pin, authVm)
                         }
                     }
                     navController.navigate("contacts") {
@@ -396,49 +406,63 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
 }
 
 /**
- * G2: после первого PIN-логина — предложить включить биометрию.
- * Если в Prefs уже лежит "PLAIN:<token>", оборачиваем его Keystore-ключом
- * через BiometricPrompt и сохраняем cipher+iv. Дальше при холодном старте
- * PinUnlockScreen покажет кнопку "Войти по биометрии" и unlock_token будет
- * получен только после успешной аутентификации.
+ * G2 (C2 fix): после первого PIN-логина — предложить включить биометрию.
+ * Раньше unlock_token запрашивался сразу в login() и лежал в Prefs как
+ * "PLAIN:<token>" до момента enroll-а. Теперь — обратный порядок:
+ *   1. показываем BiometricPrompt пустым ключом (только enrollment),
+ *   2. если success — fetchUnlockToken с сервера,
+ *   3. wrap токена через тот же ключ и запись в Prefs.
+ * Plain-токен не покидает RAM. При отказе — токен не запрашивается вовсе.
  */
-private fun maybeOfferBiometricEnroll(activity: FragmentActivity?, ctx: android.content.Context, pin: String) {
+private fun maybeOfferBiometricEnroll(
+    activity: FragmentActivity?,
+    ctx: android.content.Context,
+    pin: String,
+    authVm: AuthViewModel,
+) {
     if (activity == null) return
     if (Prefs.isBiometricEnabled(ctx)) return
     if (Prefs.isBiometricPromptAsked(ctx)) return
     if (!com.iromashka.crypto.BiometricKeystore.canAuthenticate(ctx)) return
-    val stored = Prefs.getUnlockTokenWrapped(ctx)
-    if (!stored.startsWith("PLAIN:")) return
-    val plainToken = stored.removePrefix("PLAIN:")
-    val expires = Prefs.getUnlockTokenExpires(ctx)
 
     Prefs.setBiometricPromptAsked(ctx)
 
-    // Wrap "<unlock_token>\n<pin>" together — biometric unlocks both at once.
-    val payload = (plainToken + "\n" + pin).toByteArray(Charsets.UTF_8)
     // Postpone until after navigation/UI settles — иначе BiometricPrompt диалог
     // открывается одновременно с переходом на "contacts" и закрывается на смене
     // композиции, пользователь видит "мигнуло окошко с пальцем" и больше ничего.
     activity.window.decorView.postDelayed({
-        com.iromashka.crypto.BiometricKeystore.wrapWithBiometric(
-            activity = activity,
-            plaintext = payload,
-            title = "АйРомашка",
-            subtitle = "Включить вход по биометрии?",
-            onSuccess = { ct, iv ->
-                Prefs.setUnlockToken(ctx, wrapped = ct, iv = iv, expiresAt = expires)
-                Prefs.setBiometricEnabled(ctx, true)
-                android.widget.Toast.makeText(ctx, "Биометрия включена", android.widget.Toast.LENGTH_SHORT).show()
-            },
-            onFail = { reason ->
-                android.util.Log.w("Biometric", "enroll failed: $reason")
-                // Если пользователь отменил/диалог закрылся не по своей воле —
-                // снимаем флаг "уже спросили", чтобы предложить снова при следующем логине.
-                if (reason.contains("err 10") || reason.contains("err 13") || reason.contains("user")) {
-                    com.iromashka.storage.Prefs.simplePrefs(ctx).edit().putBoolean("biometric_prompted", false).apply()
-                }
-                Prefs.setBiometricEnabled(ctx, false)
+        // Сначала спрашиваем сервер за unlock_token. Если сеть отвалилась —
+        // не дёргаем биометрию, попросим в след. раз (снимаем флаг "asked").
+        MainScope().launch {
+            val tokenResult = authVm.fetchUnlockToken()
+            if (tokenResult == null) {
+                com.iromashka.storage.Prefs.simplePrefs(ctx).edit()
+                    .putBoolean("biometric_prompted", false).apply()
+                return@launch
             }
-        )
+            // Wrap "<unlock_token>\n<pin>" together — biometric unlocks both at once.
+            val payload = (tokenResult.token + "\n" + pin).toByteArray(Charsets.UTF_8)
+            com.iromashka.crypto.BiometricKeystore.wrapWithBiometric(
+                activity = activity,
+                plaintext = payload,
+                title = "АйРомашка",
+                subtitle = "Включить вход по биометрии?",
+                onSuccess = { ct, iv ->
+                    Prefs.setUnlockToken(ctx, wrapped = ct, iv = iv, expiresAt = tokenResult.expiresAt)
+                    Prefs.setBiometricEnabled(ctx, true)
+                    android.widget.Toast.makeText(ctx, "Биометрия включена", android.widget.Toast.LENGTH_SHORT).show()
+                },
+                onFail = { reason ->
+                    android.util.Log.w("Biometric", "enroll failed: $reason")
+                    // Отказ/ошибка — токен на сервере уже выписан, но локально не сохранён.
+                    // Снимаем флаг "уже спросили", чтобы предложить снова при след. логине.
+                    if (reason.contains("err 10") || reason.contains("err 13") || reason.contains("user")) {
+                        com.iromashka.storage.Prefs.simplePrefs(ctx).edit()
+                            .putBoolean("biometric_prompted", false).apply()
+                    }
+                    Prefs.setBiometricEnabled(ctx, false)
+                }
+            )
+        }
     }, 600L)
 }

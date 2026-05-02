@@ -171,7 +171,6 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 registerDevice(resp.token, Prefs.getPubKey(ctx))
-                requestUnlockToken(resp.token)
                 _state.value = AuthState.Success(resp.uin)
             }.onFailure { e ->
                 android.util.Log.w("AuthVM", "Login failed UIN $uin: ${e.message}", e)
@@ -222,24 +221,28 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** G2: ask server for a 7-day unlock_token. Stored in plain Prefs until biometric opt-in. */
-    private suspend fun requestUnlockToken(jwt: String) {
-        runCatching {
+    /**
+     * G2 (C2 fix): запросить unlock_token с сервера. НЕ пишем в Prefs — возвращаем
+     * наружу. Вызывается ИЗ maybeOfferBiometricEnroll только если юзер согласился
+     * на биометрию; тогда токен сразу заворачивается через BiometricKeystore.
+     * До этого момента plain-токена на диске вообще не существует.
+     */
+    suspend fun fetchUnlockToken(): UnlockTokenResult? {
+        val jwt = Prefs.getToken(ctx)
+        if (jwt.isEmpty()) return null
+        return runCatching {
             val deviceId = Prefs.getDeviceId(ctx)
             val resp = api.unlockIssue("Bearer $jwt",
                 com.iromashka.network.UnlockIssueRequest(device_id = deviceId))
-            // Stash plaintext temporarily — UI layer prompts user to enable biometric and
-            // re-saves it Keystore-wrapped via BiometricKeystore.wrapWithBiometric().
-            // We record only expires_at here; the token itself goes through the UI flow.
-            Prefs.setUnlockToken(ctx,
-                wrapped = "PLAIN:" + resp.unlock_token,
-                iv = "",
-                expiresAt = resp.expires_at)
             android.util.Log.i("AuthVM", "Unlock token issued, expires_at=${resp.expires_at}")
-        }.onFailure {
+            UnlockTokenResult(resp.unlock_token, resp.expires_at)
+        }.getOrElse {
             android.util.Log.w("AuthVM", "Unlock token issue failed: ${it.message}")
+            null
         }
     }
+
+    data class UnlockTokenResult(val token: String, val expiresAt: Long)
 
     /**
      * Try to fast-unlock using saved unlock_token (after biometric, if enabled, or plain if not).
