@@ -2,6 +2,8 @@ package com.iromashka.crypto
 
 import android.content.Context
 import android.util.Base64
+import com.lambdapioneer.argon2kt.Argon2Kt
+import com.lambdapioneer.argon2kt.Argon2Mode
 import java.security.KeyFactory
 import java.security.PrivateKey
 import java.security.PublicKey
@@ -35,11 +37,22 @@ import java.security.AlgorithmParameters
  *   fp   = PBKDF2(norm, salt="irm-fp/<uin>",  50000,  SHA-256, 256bit) → hex
  *
  * Wrap: AES-GCM(privKey.pkcs8, key=aes, iv=rand12). Blob = iv || ct, base64.
+ *
+ * C3: unwrap is reader-tolerant — supports legacy (iv|ct, PBKDF2) and ARG1
+ * (ARG1 || iv(12) || ct, Argon2id). Wrap remains PBKDF2 until PWA recovery
+ * is migrated; coordinated upgrade later.
  */
 object Bip39 {
 
     private const val PBKDF2_REC_ITERS = 250_000
     private const val PBKDF2_FP_ITERS = 50_000
+
+    // Argon2id (matches CryptoManager / PWA derivation)
+    private const val ARGON2_T_COST = 2
+    private const val ARGON2_M_COST_KIB = 19_456
+    private const val ARGON2_PARALLELISM = 1
+    private const val ARGON2_HASH_LEN = 32
+    private val ARG1_PREFIX = byteArrayOf(0x41, 0x52, 0x47, 0x31)
 
     @Volatile private var wordsCache: List<String>? = null
     @Volatile private var wordSetCache: Set<String>? = null
@@ -103,6 +116,23 @@ object Bip39 {
         )
     }
 
+    /** C3: Argon2id-derived AES key for ARG1 recovery blobs. Salt namespace отличается от
+     *  PBKDF2 ("irm-rec-arg/<uin>"), чтобы случайно не пересеклись. PWA при миграции
+     *  должен использовать ту же строку. */
+    private fun deriveArgon2idAesKey(phrase: String, uin: Long): SecretKey {
+        val salt = "irm-rec-arg/$uin".toByteArray(Charsets.UTF_8)
+        val raw = Argon2Kt().hash(
+            mode = Argon2Mode.ARGON2_ID,
+            password = phrase.toByteArray(Charsets.UTF_8),
+            salt = salt,
+            tCostInIterations = ARGON2_T_COST,
+            mCostInKibibyte = ARGON2_M_COST_KIB,
+            parallelism = ARGON2_PARALLELISM,
+            hashLengthInBytes = ARGON2_HASH_LEN
+        ).rawHashAsByteArray()
+        return SecretKeySpec(raw, "AES")
+    }
+
     data class Wrapped(val wrappedB64: String, val fingerprint: String)
 
     fun wrap(ctx: Context, privKey: PrivateKey, phrase: String, uin: Long): Wrapped {
@@ -121,16 +151,34 @@ object Bip39 {
     }
 
     fun unwrap(ctx: Context, wrappedB64: String, phrase: String, uin: Long): PrivateKey {
-        val d = deriveKey(ctx, phrase, uin)
+        val norm = validate(ctx, phrase) ?: throw IllegalArgumentException("Фраза должна состоять из 12 слов BIP39")
         val blob = Base64.decode(wrappedB64, Base64.NO_WRAP)
+        if (hasArg1Prefix(blob)) {
+            // C3 ARG1: ARG1(4) || iv(12) || ct
+            require(blob.size > 4 + 12 + 16) { "ARG1 recovery blob too short" }
+            val iv = blob.sliceArray(4 until 16)
+            val ct = blob.sliceArray(16 until blob.size)
+            val aes = deriveArgon2idAesKey(norm, uin)
+            return decryptPkcs8(aes, iv, ct)
+        }
+        // legacy PBKDF2: iv(12) || ct
         require(blob.size > 12) { "Поврежденная резервная копия" }
         val iv = blob.sliceArray(0 until 12)
         val ct = blob.sliceArray(12 until blob.size)
+        val d = deriveKey(ctx, norm, uin)
+        return decryptPkcs8(d.aes, iv, ct)
+    }
+
+    private fun decryptPkcs8(aes: SecretKey, iv: ByteArray, ct: ByteArray): PrivateKey {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, d.aes, GCMParameterSpec(128, iv))
+        cipher.init(Cipher.DECRYPT_MODE, aes, GCMParameterSpec(128, iv))
         val pkcs8 = cipher.doFinal(ct)
         return KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(pkcs8))
     }
+
+    private fun hasArg1Prefix(b: ByteArray): Boolean =
+        b.size >= 4 && b[0] == ARG1_PREFIX[0] && b[1] == ARG1_PREFIX[1] &&
+            b[2] == ARG1_PREFIX[2] && b[3] == ARG1_PREFIX[3]
 
     private fun pbkdf2(passphrase: String, salt: ByteArray, iters: Int, bits: Int): ByteArray {
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
