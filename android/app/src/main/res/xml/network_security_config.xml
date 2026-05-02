@@ -1,13 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!-- H3: глобальный default — никаких cleartext по всему приложению,
+         доверяем только системные CA (без user-installed, чтобы CA-stuffing
+         через MDM/корпоративные сертификаты не позволял MITM). -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Production домен — явно дублируем запрет cleartext (defense in depth). -->
     <domain-config cleartextTrafficPermitted="false">
-        <!-- Production: TLS only -->
         <domain includeSubdomains="true">iromashka.ru</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
     </domain-config>
-    <!-- Allow cleartext for local debug if needed -->
+
+    <!-- Debug-only: разрешаем user-installed CA для charles/burp при отладке.
+         В release сборке debug-overrides игнорируются. -->
     <debug-overrides>
         <trust-anchors>
             <certificates src="system" />
+            <certificates src="user" />
         </trust-anchors>
     </debug-overrides>
 </network-security-config>
