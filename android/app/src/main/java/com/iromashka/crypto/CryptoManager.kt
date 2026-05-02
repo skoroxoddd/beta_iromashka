@@ -96,18 +96,19 @@ object CryptoManager {
 
     /**
      * Encrypt for a single recipient.
-     * Format: {"v":2,"epk":"...","iv":"...","ct":"..."}
-     * Uses raw ECDH shared secret as AES key — matches WebCrypto deriveKey.
+     * Format v3 (M1): {"v":3,"epk":"...","iv":"...","ct":"..."}
+     * AES key = HKDF-SHA256(ikm=ECDH_shared, salt=empty, info="irm-msg-v3"||epk_spki, L=32).
+     * v2 reader (raw shared) сохраняется в decryptMessage.
      */
     fun encryptMessage(plaintext: String, recipientPub: PublicKey): String {
         val ephKp = generateKeyPair()
-        val aesKey = ecdhAesKey(ephKp.private, recipientPub)
+        val aesKey = ecdhAesKeyHkdf(ephKp.private, recipientPub, ephKp.public.encoded)
         val iv = randomBytes(12)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
         val ct = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
         val json = JSONObject()
-        json.put("v", 2)
+        json.put("v", 3)
         json.put("epk", Base64.encodeToString(ephKp.public.encoded, Base64.NO_WRAP))
         json.put("iv", Base64.encodeToString(iv, Base64.NO_WRAP))
         json.put("ct", Base64.encodeToString(ct, Base64.NO_WRAP))
@@ -124,11 +125,13 @@ object CryptoManager {
 
     fun decryptMessage(cipherJson: String, myPrivKey: PrivateKey): String? = runCatching {
         val obj = JSONObject(cipherJson)
+        val v = obj.optInt("v", 2)
         val ephPubBytes = Base64.decode(obj.getString("epk"), Base64.NO_WRAP)
         val iv = Base64.decode(obj.getString("iv"), Base64.NO_WRAP)
         val ct = Base64.decode(obj.getString("ct"), Base64.NO_WRAP)
         val ephPub = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(ephPubBytes))
-        val aesKey = ecdhAesKey(myPrivKey, ephPub)
+        val aesKey = if (v >= 3) ecdhAesKeyHkdf(myPrivKey, ephPub, ephPubBytes)
+                     else ecdhAesKey(myPrivKey, ephPub)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
         String(cipher.doFinal(ct), Charsets.UTF_8)
@@ -157,6 +160,44 @@ object CryptoManager {
         ka.doPhase(pub, true)
         val shared = ka.generateSecret()
         return SecretKeySpec(shared.copyOf(32), "AES")
+    }
+
+    /** M1: HKDF-SHA256(ikm=ECDH_shared, salt=empty, info="irm-msg-v3"||epk_spki, L=32). */
+    private fun ecdhAesKeyHkdf(priv: PrivateKey, pub: PublicKey, epkSpki: ByteArray): SecretKeySpec {
+        val ka = KeyAgreement.getInstance("ECDH")
+        ka.init(priv)
+        ka.doPhase(pub, true)
+        val ikm = ka.generateSecret()
+        val info = "irm-msg-v3".toByteArray(Charsets.US_ASCII) + epkSpki
+        val okm = hkdfSha256(ikm, ByteArray(0), info, 32)
+        return SecretKeySpec(okm, "AES")
+    }
+
+    private fun hkdfSha256(ikm: ByteArray, salt: ByteArray, info: ByteArray, length: Int): ByteArray {
+        val hmac = Mac.getInstance("HmacSHA256")
+        // Extract: PRK = HMAC(salt or zeros, IKM)
+        val saltKey = if (salt.isEmpty()) ByteArray(32) else salt
+        hmac.init(SecretKeySpec(saltKey, "HmacSHA256"))
+        val prk = hmac.doFinal(ikm)
+        // Expand
+        hmac.init(SecretKeySpec(prk, "HmacSHA256"))
+        val out = ByteArray(length)
+        var t = ByteArray(0)
+        var pos = 0
+        var counter = 1
+        while (pos < length) {
+            hmac.reset()
+            hmac.init(SecretKeySpec(prk, "HmacSHA256"))
+            hmac.update(t)
+            hmac.update(info)
+            hmac.update(counter.toByte())
+            t = hmac.doFinal()
+            val take = minOf(t.size, length - pos)
+            System.arraycopy(t, 0, out, pos, take)
+            pos += take
+            counter++
+        }
+        return out
     }
 
     private fun pbkdf2Key(pin: String, salt: ByteArray): SecretKey {
