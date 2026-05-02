@@ -1,6 +1,8 @@
 package com.iromashka.crypto
 
 import android.util.Base64
+import com.lambdapioneer.argon2kt.Argon2Kt
+import com.lambdapioneer.argon2kt.Argon2Mode
 import org.json.JSONObject
 import java.security.*
 import java.security.spec.*
@@ -10,7 +12,8 @@ import javax.crypto.spec.*
 /**
  * E2E crypto compatible with web client (WebCrypto API):
  * - P-256 ECDH keypair
- * - Private key: PBKDF2(pin, 250k iter) + AES-256-GCM wrap
+ * - Private key: Argon2id (m=19MiB t=2 p=1) + AES-256-GCM wrap (C3, "ARG1" prefix)
+ *   Legacy reader: PBKDF2(pin, 250k iter) — для blob-ов без префикса
  * - Per-message: ephemeral ECDH + raw shared secret + AES-256-GCM
  * - Forward Secrecy: ephemeral key discarded after each message
  */
@@ -18,6 +21,14 @@ object CryptoManager {
 
     private const val PBKDF2_ITERATIONS = 250_000
     private const val EC_CURVE = "secp256r1"
+
+    // C3: Argon2id parameters — должны 1-в-1 совпадать с PWA (deriveArgon2idAesKey)
+    private const val ARGON2_T_COST = 2
+    private const val ARGON2_M_COST_KIB = 19_456 // 19 MiB
+    private const val ARGON2_PARALLELISM = 1
+    private const val ARGON2_HASH_LEN = 32
+    // "ARG1" в ASCII
+    private val ARG1_PREFIX = byteArrayOf(0x41, 0x52, 0x47, 0x31)
 
     fun generateKeyPair(): KeyPair {
         val kpg = KeyPairGenerator.getInstance("EC")
@@ -35,20 +46,22 @@ object CryptoManager {
 
     // ── Private key wrapping ────────────────────────────────────────────────
 
+    /** C3: write Argon2id-wrapped blob with "ARG1" prefix. Format: ARG1 || salt(16) || iv(12) || ct */
     fun wrapPrivateKey(priv: PrivateKey, pin: String): String {
         val salt = randomBytes(16)
         val iv = randomBytes(12)
-        val aesKey = pbkdf2Key(pin, salt)
+        val aesKey = argon2idKey(pin, salt)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
         val ct = cipher.doFinal(priv.encoded)
-        return Base64.encodeToString(salt + iv + ct, Base64.NO_WRAP)
+        return Base64.encodeToString(ARG1_PREFIX + salt + iv + ct, Base64.NO_WRAP)
     }
 
     fun unwrapPrivateKey(wrapped: String, pin: String): PrivateKey {
-        // Two formats are supported:
-        //   1. Compact: base64(salt(16) || iv(12) || ct)
-        //   2. PWA JSON: {"ct":"...","iv":"...","salt":"..."}
+        // Поддерживаемые форматы:
+        //   1. C3 ARG1: base64( "ARG1"(4) || salt(16) || iv(12) || ct )
+        //   2. Legacy compact: base64( salt(16) || iv(12) || ct ) — PBKDF2-250k
+        //   3. PWA JSON {"ct","iv","salt"} — legacy PBKDF2 PWA backup
         val trimmed = wrapped.trim()
         if (trimmed.startsWith("{")) {
             val obj = JSONObject(trimmed)
@@ -56,20 +69,24 @@ object CryptoManager {
             val iv = Base64.decode(obj.getString("iv"), Base64.NO_WRAP)
             val ct = Base64.decode(obj.getString("ct"), Base64.NO_WRAP)
             val aesKey = pbkdf2Key(pin, salt)
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
-            val pkcs8 = cipher.doFinal(ct)
-            return KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(pkcs8))
+            return decryptPkcs8(aesKey, iv, ct)
         }
         val bytes = Base64.decode(trimmed, Base64.NO_WRAP)
+        if (hasArg1Prefix(bytes)) {
+            require(bytes.size > 4 + 16 + 12 + 16) { "ARG1 wrapped too short" }
+            val salt = bytes.sliceArray(4 until 20)
+            val iv = bytes.sliceArray(20 until 32)
+            val ct = bytes.sliceArray(32 until bytes.size)
+            val aesKey = argon2idKey(pin, salt)
+            return decryptPkcs8(aesKey, iv, ct)
+        }
+        // legacy PBKDF2
+        require(bytes.size > 28) { "wrapped too short" }
         val salt = bytes.sliceArray(0..15)
         val iv = bytes.sliceArray(16..27)
         val ct = bytes.sliceArray(28 until bytes.size)
         val aesKey = pbkdf2Key(pin, salt)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
-        val pkcs8 = cipher.doFinal(ct)
-        return KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(pkcs8))
+        return decryptPkcs8(aesKey, iv, ct)
     }
 
     fun rewrapPrivateKey(wrapped: String, oldPin: String, newPin: String): String =
@@ -123,6 +140,17 @@ object CryptoManager {
 
     // ── Internal ────────────────────────────────────────────────────────────
 
+    private fun decryptPkcs8(aesKey: SecretKey, iv: ByteArray, ct: ByteArray): PrivateKey {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, aesKey, GCMParameterSpec(128, iv))
+        val pkcs8 = cipher.doFinal(ct)
+        return KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(pkcs8))
+    }
+
+    private fun hasArg1Prefix(b: ByteArray): Boolean =
+        b.size >= 4 && b[0] == ARG1_PREFIX[0] && b[1] == ARG1_PREFIX[1] &&
+            b[2] == ARG1_PREFIX[2] && b[3] == ARG1_PREFIX[3]
+
     private fun ecdhAesKey(priv: PrivateKey, pub: PublicKey): SecretKeySpec {
         val ka = KeyAgreement.getInstance("ECDH")
         ka.init(priv)
@@ -135,6 +163,19 @@ object CryptoManager {
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
         val spec = PBEKeySpec(pin.toCharArray(), salt, PBKDF2_ITERATIONS, 256)
         val raw = factory.generateSecret(spec).encoded
+        return SecretKeySpec(raw, "AES")
+    }
+
+    private fun argon2idKey(pin: String, salt: ByteArray): SecretKey {
+        val raw = Argon2Kt().hash(
+            mode = Argon2Mode.ARGON2_ID,
+            password = pin.toByteArray(Charsets.UTF_8),
+            salt = salt,
+            tCostInIterations = ARGON2_T_COST,
+            mCostInKibibyte = ARGON2_M_COST_KIB,
+            parallelism = ARGON2_PARALLELISM,
+            hashLengthInBytes = ARGON2_HASH_LEN
+        ).rawHashAsByteArray()
         return SecretKeySpec(raw, "AES")
     }
 
