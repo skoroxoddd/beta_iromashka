@@ -1,5 +1,6 @@
 package com.iromashka.network
 
+import okhttp3.CertificatePinner
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -154,7 +155,40 @@ object ApiService {
         ): okhttp3.ResponseBody
     }
 
+    /**
+     * H1: certificate pinning для iromashka.ru.
+     *
+     * Ключевая идея: пинуем публичные ключи, а не сами сертификаты.
+     * Включены пины:
+     *   - текущий leaf SPKI (Let's Encrypt E8, валиден до Jul 2026) — primary
+     *   - leaf intermediate fallback: все возможные LE intermediate (E5..E9)
+     *   - ISRG Root X1 / X2 — корни LE, как страховочный pin верхнего уровня
+     *
+     * Pin верхнего уровня (ISRG Root) спасает от kill-switch если LE поменяет
+     * intermediate раньше чем мы выпустим новый APK. ISRG X1 действует до 2030,
+     * X2 до 2035 — горизонт безопасный.
+     *
+     * Когда менять: если LE начнёт использовать новый intermediate (E10+), —
+     * за месяц до того как все сертификаты сервера переедут на него, нужно
+     * добавить новый pin сюда и выкатить релиз. Текущий ISRG-root pin
+     * страхует период между выпуском нового LE intermediate и нашим релизом.
+     */
+    private val certificatePinner = CertificatePinner.Builder()
+        // leaf (текущий)
+        .add("iromashka.ru", "sha256/rXJFH4bRxVSaK6rrSx3AhhOJb2eYQxSYkP+4sal+I1Y=")
+        // LE intermediates (все актуальные ECDSA — на случай ротации leaf)
+        .add("iromashka.ru", "sha256/iFvwVyJSxnQdyaUvUERIf+8qk7gRze3612JMwoO3zdU=") // E8
+        .add("iromashka.ru", "sha256/NYbU7PBwV4y9J67c4guWTki8FJ+uudrXL0a4V4aRcrg=") // E5
+        .add("iromashka.ru", "sha256/0Bbh/jEZSKymTy3kTOhsmlHKBB32EDu1KojrP3YfV9c=") // E6
+        .add("iromashka.ru", "sha256/y7xVm0TVJNahMr2sZydE2jQH8SquXV9yLF9seROHHHU=") // E7
+        .add("iromashka.ru", "sha256/8UQKm3bh5B5TpMtGEym/Yze0GXJr5RPkLhnxxpHF1LI=") // E9
+        // ISRG root (kill-switch insurance, валиден >2030)
+        .add("iromashka.ru", "sha256/C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=") // ISRG X1
+        .add("iromashka.ru", "sha256/diGVwiVYbubAI3RW4hB9xU8e/CH2GnkuvVFZE8zmgzI=") // ISRG X2
+        .build()
+
     private val client = OkHttpClient.Builder()
+        .certificatePinner(certificatePinner)
         .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.NONE })
         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
