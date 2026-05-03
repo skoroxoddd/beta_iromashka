@@ -4,6 +4,7 @@ import android.media.MediaPlayer
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -55,6 +56,9 @@ fun ContactListScreen(
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showCreateGroupDialog by remember { mutableStateOf(false) }
+    var contactMenuTarget by remember { mutableStateOf<ContactEntity?>(null) }
+    var renameTarget by remember { mutableStateOf<ContactEntity?>(null) }
+    var deleteTarget by remember { mutableStateOf<ContactEntity?>(null) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var showDiscoverDialog by remember { mutableStateOf(false) }
     var showPinChange by remember { mutableStateOf(false) }
@@ -172,13 +176,60 @@ fun ContactListScreen(
         when (tabSelected) {
             0 -> ContactTab(contacts, palette,
                 onAddClick = { showAddDialog = true },
-                onChatOpen = onChatOpen
+                onChatOpen = onChatOpen,
+                onContactLongClick = { contactMenuTarget = it }
             )
             1 -> GroupTab(groups, palette,
                 onCreateClick = { showCreateGroupDialog = true },
                 onGroupClick = onGroupChatOpen
             )
         }
+    }
+
+    contactMenuTarget?.let { target ->
+        ContactActionsSheet(
+            contact = target,
+            palette = palette,
+            onDismiss = { contactMenuTarget = null },
+            onRename = { renameTarget = target; contactMenuTarget = null },
+            onDelete = { deleteTarget = target; contactMenuTarget = null },
+        )
+    }
+
+    renameTarget?.let { target ->
+        RenameContactDialog(
+            contact = target,
+            palette = palette,
+            onDismiss = { renameTarget = null },
+            onConfirm = { newName ->
+                viewModel.renameContact(target.uin, newName)
+                renameTarget = null
+            }
+        )
+    }
+
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            containerColor = palette.surface,
+            title = { Text("Удалить контакт?", color = palette.textPrimary) },
+            text = {
+                Text(
+                    "${target.nickname} (UIN ${target.uin}) будет удалён из списка. " +
+                        "Переписка не удаляется.",
+                    color = palette.textSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteContact(target.uin)
+                    deleteTarget = null
+                }) { Text("Удалить", color = palette.errorRed) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text("Отмена") }
+            }
+        )
     }
 
     if (showAddDialog) {
@@ -260,7 +311,8 @@ private fun ContactTab(
     contacts: List<ContactEntity>,
     palette: com.iromashka.ui.theme.ThemePalette,
     onAddClick: () -> Unit,
-    onChatOpen: (Long, String) -> Unit
+    onChatOpen: (Long, String) -> Unit,
+    onContactLongClick: (ContactEntity) -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth()
@@ -299,7 +351,12 @@ private fun ContactTab(
     } else {
         LazyColumn {
             items(contacts, key = { it.uin }) { contact ->
-                ContactItem(contact, palette) { onChatOpen(contact.uin, contact.nickname) }
+                ContactItem(
+                    contact = contact,
+                    palette = palette,
+                    onClick = { onChatOpen(contact.uin, contact.nickname) },
+                    onLongClick = { onContactLongClick(contact) }
+                )
                 HorizontalDivider(color = palette.divider, thickness = 0.5.dp)
             }
         }
@@ -378,7 +435,12 @@ private fun GroupItemRow(
 }
 
 @Composable
-private fun ContactItem(contact: ContactEntity, palette: com.iromashka.ui.theme.ThemePalette, onClick: () -> Unit) {
+private fun ContactItem(
+    contact: ContactEntity,
+    palette: com.iromashka.ui.theme.ThemePalette,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
+) {
     val statusColor = when (contact.status) {
         "Online"      -> palette.onlineGreen
         "Away"        -> androidx.compose.ui.graphics.Color(0xFFF59E0B)
@@ -411,7 +473,7 @@ private fun ContactItem(contact: ContactEntity, palette: com.iromashka.ui.theme.
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -463,6 +525,85 @@ private fun ContactItem(contact: ContactEntity, palette: com.iromashka.ui.theme.
             )
         }
     }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun ContactActionsSheet(
+    contact: ContactEntity,
+    palette: com.iromashka.ui.theme.ThemePalette,
+    onDismiss: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = palette.surface,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+            Text(
+                contact.nickname,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                color = palette.textPrimary,
+            )
+            HorizontalDivider(color = palette.divider)
+            Text(
+                "Переименовать",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onRename)
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                color = palette.textPrimary,
+                fontSize = 15.sp,
+            )
+            Text(
+                "Удалить контакт",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onDelete)
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                color = palette.errorRed,
+                fontSize = 15.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RenameContactDialog(
+    contact: ContactEntity,
+    palette: com.iromashka.ui.theme.ThemePalette,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var name by remember(contact.uin) { mutableStateOf(contact.nickname) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = palette.surface,
+        title = { Text("Переименовать", color = palette.textPrimary) },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Новое имя", color = palette.textSecondary) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = palette.accent,
+                    unfocusedBorderColor = palette.divider,
+                ),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name) },
+                enabled = name.isNotBlank() && name.trim() != contact.nickname,
+            ) { Text("Сохранить") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+    )
 }
 
 @Composable

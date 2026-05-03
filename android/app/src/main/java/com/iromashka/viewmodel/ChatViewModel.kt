@@ -908,6 +908,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun renameContact(uin: Long, nickname: String) {
+        viewModelScope.launch {
+            contactDao.renameByUin(uin, nickname.trim())
+        }
+    }
+
+    fun deleteContact(uin: Long) {
+        viewModelScope.launch {
+            contactDao.deleteByUin(uin)
+        }
+    }
+
     private fun ensureBotContact() {
         viewModelScope.launch {
             val existing = contactDao.getByUin(100000L)
