@@ -129,11 +129,36 @@ object Prefs {
     fun setBiometricEnabled(ctx: Context, enabled: Boolean) {
         simplePrefs(ctx).edit().putBoolean("biometric_enabled", enabled).apply()
     }
-    /** True if user already saw and answered the biometric opt-in dialog */
-    fun isBiometricPromptAsked(ctx: Context): Boolean =
-        simplePrefs(ctx).getBoolean("biometric_prompted", false)
+    /**
+     * Cooldown 24h: возвращаем true, если последнее предложение enroll-а было
+     * меньше 24 часов назад. Раньше был "навсегда true" — пользователь, отказавшийся
+     * на первом логине или закрывший приложение до диалога, больше никогда не получал
+     * предложения. Cooldown даёт повторную возможность раз в сутки.
+     *
+     * Legacy: если в Prefs остался старый bool `biometric_prompted=true`, считаем,
+     * что cooldown активен (мигрируем в timestamp при следующем enroll-е).
+     */
+    fun isBiometricPromptAsked(ctx: Context): Boolean {
+        val sp = simplePrefs(ctx)
+        val ts = sp.getLong("biometric_prompted_at", 0L)
+        if (ts > 0L) {
+            val cooldownMs = 24L * 60L * 60L * 1000L
+            return System.currentTimeMillis() - ts < cooldownMs
+        }
+        return sp.getBoolean("biometric_prompted", false)
+    }
     fun setBiometricPromptAsked(ctx: Context) {
-        simplePrefs(ctx).edit().putBoolean("biometric_prompted", true).apply()
+        simplePrefs(ctx).edit()
+            .putLong("biometric_prompted_at", System.currentTimeMillis())
+            .remove("biometric_prompted")
+            .apply()
+    }
+    /** Сбрасывает cooldown — пользователь получит предложение при следующем входе. */
+    fun clearBiometricPromptAsked(ctx: Context) {
+        simplePrefs(ctx).edit()
+            .remove("biometric_prompted_at")
+            .remove("biometric_prompted")
+            .apply()
     }
 
     // Theme

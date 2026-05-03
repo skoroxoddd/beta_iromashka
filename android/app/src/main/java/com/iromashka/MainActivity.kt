@@ -271,6 +271,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
         }
 
         composable("pin_unlock") {
+            val activity = ctx as? FragmentActivity
             PinUnlockScreen(
                 onForgotPin = { navController.navigate("recovery_restore") },
                 onBiometricUnlock = { unlockToken, pin ->
@@ -295,6 +296,8 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                         chatVm.init(pin) { ok ->
                             if (ok) {
                                 chatVm.connectWs()
+                                // Если биометрия не включена — предложим (cooldown 24h в Prefs).
+                                if (activity != null) maybeOfferBiometricEnroll(activity, ctx, pin, authVm)
                                 navController.navigate("contacts") {
                                     popUpTo("pin_unlock") { inclusive = true }
                                 }
@@ -306,6 +309,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                         chatVm.initWithServerRecovery(pin) { ok ->
                             if (ok) {
                                 chatVm.connectWs()
+                                if (activity != null) maybeOfferBiometricEnroll(activity, ctx, pin, authVm)
                                 navController.navigate("contacts") {
                                     popUpTo("pin_unlock") { inclusive = true }
                                 }
@@ -425,21 +429,16 @@ private fun maybeOfferBiometricEnroll(
     if (Prefs.isBiometricPromptAsked(ctx)) return
     if (!com.iromashka.crypto.BiometricKeystore.canAuthenticate(ctx)) return
 
-    Prefs.setBiometricPromptAsked(ctx)
-
     // Postpone until after navigation/UI settles — иначе BiometricPrompt диалог
     // открывается одновременно с переходом на "contacts" и закрывается на смене
     // композиции, пользователь видит "мигнуло окошко с пальцем" и больше ничего.
     activity.window.decorView.postDelayed({
         // Сначала спрашиваем сервер за unlock_token. Если сеть отвалилась —
-        // не дёргаем биометрию, попросим в след. раз (снимаем флаг "asked").
+        // не дёргаем биометрию и не ставим cooldown — попросим в след. раз.
         MainScope().launch {
-            val tokenResult = authVm.fetchUnlockToken()
-            if (tokenResult == null) {
-                com.iromashka.storage.Prefs.simplePrefs(ctx).edit()
-                    .putBoolean("biometric_prompted", false).apply()
-                return@launch
-            }
+            val tokenResult = authVm.fetchUnlockToken() ?: return@launch
+            // Cooldown ставим только после fetch-а, чтобы оффлайн-старт не "съедал" попытку.
+            Prefs.setBiometricPromptAsked(ctx)
             // Wrap "<unlock_token>\n<pin>" together — biometric unlocks both at once.
             val payload = (tokenResult.token + "\n" + pin).toByteArray(Charsets.UTF_8)
             com.iromashka.crypto.BiometricKeystore.wrapWithBiometric(
@@ -454,13 +453,8 @@ private fun maybeOfferBiometricEnroll(
                 },
                 onFail = { reason ->
                     android.util.Log.w("Biometric", "enroll failed: $reason")
-                    // Отказ/ошибка — токен на сервере уже выписан, но локально не сохранён.
-                    // Снимаем флаг "уже спросили", чтобы предложить снова при след. логине.
-                    if (reason.contains("err 10") || reason.contains("err 13") || reason.contains("user")) {
-                        com.iromashka.storage.Prefs.simplePrefs(ctx).edit()
-                            .putBoolean("biometric_prompted", false).apply()
-                    }
                     Prefs.setBiometricEnabled(ctx, false)
+                    // Cooldown 24h уже стоит — повторно предложим завтра.
                 }
             )
         }
