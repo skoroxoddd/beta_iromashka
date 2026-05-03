@@ -33,6 +33,7 @@ import com.iromashka.viewmodel.ChatViewModel
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -187,6 +188,7 @@ fun ContactListScreen(
                 viewModel.addContact(uin, nick)
                 showAddDialog = false
             },
+            onValidate = { uin -> viewModel.validateUinExists(uin) },
             palette = palette,
             onDiscover = {
                 showAddDialog = false;
@@ -467,11 +469,15 @@ private fun ContactItem(contact: ContactEntity, palette: com.iromashka.ui.theme.
 private fun AddContactDialog(
     onDismiss: () -> Unit,
     onAdd: (Long, String) -> Unit,
+    onValidate: suspend (Long) -> Boolean?,
     palette: com.iromashka.ui.theme.ThemePalette,
     onDiscover: () -> Unit
 ) {
     var uinText by remember { mutableStateOf("") }
     var nickname by remember { mutableStateOf("") }
+    var validating by remember { mutableStateOf(false) }
+    var errorText by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -481,12 +487,13 @@ private fun AddContactDialog(
             Column {
                 OutlinedTextField(
                     value = uinText,
-                    onValueChange = { uinText = it.filter { c -> c.isDigit() } },
+                    onValueChange = { uinText = it.filter { c -> c.isDigit() }; errorText = null },
                     label = { Text("UIN", color = palette.textSecondary) },
                     singleLine = true,
+                    isError = errorText != null,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = palette.accent,
-                        unfocusedBorderColor = palette.divider,
+                        focusedBorderColor = if (errorText != null) palette.errorRed else palette.accent,
+                        unfocusedBorderColor = if (errorText != null) palette.errorRed else palette.divider,
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -502,22 +509,40 @@ private fun AddContactDialog(
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (errorText != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(errorText!!, color = palette.errorRed, fontSize = 12.sp)
+                }
+                if (validating) {
+                    Spacer(Modifier.height(6.dp))
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
             }
         },
         confirmButton = {
             Row {
-                TextButton(onClick = onDiscover) { Text("По номеру") }
+                TextButton(onClick = onDiscover, enabled = !validating) { Text("По номеру") }
                 TextButton(
                     onClick = {
                         val uin = uinText.toLongOrNull() ?: return@TextButton
                         if (nickname.isBlank()) return@TextButton
-                        onAdd(uin, nickname)
+                        validating = true
+                        errorText = null
+                        scope.launch {
+                            val exists = onValidate(uin)
+                            validating = false
+                            when (exists) {
+                                true -> onAdd(uin, nickname)
+                                false -> errorText = "UIN $uin не найден"
+                                null -> errorText = "Нет связи с сервером, попробуйте позже"
+                            }
+                        }
                     },
-                    enabled = uinText.toLongOrNull() != null && nickname.isNotBlank()
+                    enabled = !validating && uinText.toLongOrNull() != null && nickname.isNotBlank()
                 ) { Text("По UIN") }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !validating) { Text("Отмена") } }
     )
 }
 

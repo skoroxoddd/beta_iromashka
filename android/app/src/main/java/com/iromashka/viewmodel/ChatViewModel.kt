@@ -884,6 +884,24 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     // -- Contacts
 
+    /**
+     * Проверка существования UIN на сервере. true = есть pubkey (юзер
+     * зарегистрирован), false = 404/нет ключа, null = сетевая/прочая ошибка
+     * (UI покажет другой текст).
+     */
+    suspend fun validateUinExists(uin: Long): Boolean? {
+        val token = Prefs.getToken(ctx)
+        if (token.isEmpty()) return null
+        val resp = runCatching { api.getPubKey("Bearer $token", uin) }
+        return resp.fold(
+            onSuccess = { it.pubkey.isNotBlank() },
+            onFailure = { e ->
+                val code = (e as? retrofit2.HttpException)?.code()
+                if (code == 404) false else null
+            }
+        )
+    }
+
     fun addContact(uin: Long, nickname: String) {
         viewModelScope.launch {
             contactDao.insert(ContactEntity(uin, nickname))
