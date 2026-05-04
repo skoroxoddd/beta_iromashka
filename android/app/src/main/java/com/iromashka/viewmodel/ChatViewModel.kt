@@ -193,7 +193,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 android.util.Log.d("ChatVM", "syncHistoryForChat $chatUin since=$lastLocal items=${items.size} relevant=${relevant.size}")
                 for (item in relevant) {
                     val isOutgoing = item.sender_uin == myUin
-                    val plaintext: String? = if (isOutgoing) {
+                    val plaintext: String? = if (item.sender_uin == 0L) {
+                        // System message — plaintext
+                        item.ciphertext
+                    } else if (isOutgoing) {
                         // F3: outgoing — prefer sender_ciphertext (encrypted to my own pubkey).
                         item.sender_ciphertext
                             ?.let { runCatching { CryptoManager.decryptMessage(it, privKey) }.getOrNull() }
@@ -584,7 +587,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
         android.util.Log.i("ChatVM", "handleIncoming sender=${env.sender_uin} receiver=${env.receiver_uin} ct_len=${env.ciphertext.length} ts=${env.timestamp}")
 
-        val raw = runCatching {
+        // System messages (sender_uin=0) are plaintext — no E2E decryption needed
+        val raw = if (env.sender_uin == 0L) {
+            env.ciphertext
+        } else runCatching {
             CryptoManager.decryptMessage(env.ciphertext, privKey)
         }.onFailure { e ->
             android.util.Log.w("ChatVM", "handleIncoming decrypt FAILED: ${e.message}")
