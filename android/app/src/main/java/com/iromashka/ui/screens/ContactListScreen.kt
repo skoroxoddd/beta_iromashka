@@ -434,6 +434,7 @@ private fun GroupItemRow(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ContactItem(
     contact: ContactEntity,
