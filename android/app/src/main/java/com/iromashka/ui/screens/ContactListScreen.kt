@@ -695,28 +695,122 @@ private fun PhoneDiscoverDialog(
     viewModel: ChatViewModel,
     palette: com.iromashka.ui.theme.ThemePalette
 ) {
+    val ctx = LocalContext.current
     var phoneText by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<ChatViewModel.DiscoveredResult>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
+    var phonebookContacts by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var showPhonebook by remember { mutableStateOf(false) }
+
+    val contactsPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            val entries = mutableListOf<Pair<String, String>>()
+            val cursor = ctx.contentResolver.query(
+                android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                arrayOf(
+                    android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                    android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER
+                ),
+                null, null,
+                android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
+            )
+            cursor?.use {
+                val nameCol = it.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                val numCol = it.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER)
+                while (it.moveToNext()) {
+                    val name = it.getString(nameCol) ?: continue
+                    val number = it.getString(numCol) ?: continue
+                    entries.add(name to number)
+                }
+            }
+            phonebookContacts = entries
+            showPhonebook = true
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = palette.surface,
         title = { Text("Найти по номеру", color = palette.textPrimary) },
         text = {
-            Column(modifier = Modifier.heightIn(max = 300.dp)) {
-                OutlinedTextField(
-                    value = phoneText,
-                    onValueChange = { phoneText = it },
-                    label = { Text("Номер телефона", color = palette.textSecondary) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
+            Column(modifier = Modifier.heightIn(max = 400.dp)) {
+                if (showPhonebook && phonebookContacts.isNotEmpty()) {
+                    Text("Выберите контакт:", color = palette.textSecondary, fontSize = 13.sp)
+                    Spacer(Modifier.height(6.dp))
+                    LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp)) {
+                        items(phonebookContacts) { (name, number) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        searching = true
+                                        results = emptyList()
+                                        showPhonebook = false
+                                        viewModel.discoverContacts(listOf(number)) { results = it; searching = false }
+                                    }
+                                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(name, color = palette.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                    Text(number, color = palette.textSecondary, fontSize = 12.sp)
+                                }
+                                Icon(Icons.Default.Search, null, tint = palette.accent)
+                            }
+                            HorizontalDivider(color = palette.divider, thickness = 0.5.dp)
+                        }
+                    }
+                } else {
+                    OutlinedTextField(
+                        value = phoneText,
+                        onValueChange = { phoneText = it },
+                        label = { Text("Номер телефона", color = palette.textSecondary) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        onClick = {
+                            val perm = android.Manifest.permission.READ_CONTACTS
+                            if (ContextCompat.checkSelfPermission(ctx, perm) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                val entries = mutableListOf<Pair<String, String>>()
+                                val cursor = ctx.contentResolver.query(
+                                    android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                                    arrayOf(
+                                        android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                                        android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER
+                                    ),
+                                    null, null,
+                                    android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
+                                )
+                                cursor?.use {
+                                    val nameCol = it.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                                    val numCol = it.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER)
+                                    while (it.moveToNext()) {
+                                        val name = it.getString(nameCol) ?: continue
+                                        val number = it.getString(numCol) ?: continue
+                                        entries.add(name to number)
+                                    }
+                                }
+                                phonebookContacts = entries
+                                showPhonebook = true
+                            } else {
+                                contactsPermission.launch(android.Manifest.permission.READ_CONTACTS)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Contacts, null, tint = palette.accent)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Выбрать из телефонной книги", color = palette.accent)
+                    }
+                }
                 if (searching) {
+                    Spacer(Modifier.height(8.dp))
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
                 if (results.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
                     LazyColumn(modifier = Modifier.fillMaxWidth()) {
                         items(results) { contact ->
                             Row(
@@ -735,12 +829,24 @@ private fun PhoneDiscoverDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                searching = true
-                viewModel.discoverContacts(listOf(phoneText)) { results = it; searching = false }
-            }) { Text("Найти") }
+            if (!showPhonebook) {
+                TextButton(
+                    onClick = {
+                        searching = true
+                        results = emptyList()
+                        viewModel.discoverContacts(listOf(phoneText)) { results = it; searching = false }
+                    },
+                    enabled = phoneText.isNotBlank()
+                ) { Text("Найти") }
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Готово") } }
+        dismissButton = {
+            if (showPhonebook) {
+                TextButton(onClick = { showPhonebook = false }) { Text("Назад") }
+            } else {
+                TextButton(onClick = onDismiss) { Text("Готово") }
+            }
+        }
     )
 }
 
