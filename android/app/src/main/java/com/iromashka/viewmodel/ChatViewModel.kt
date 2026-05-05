@@ -123,6 +123,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             status = when {
                                 !e.isOutgoing -> null
                                 e.isRead -> MessageStatus.Read
+                                e.isDelivered -> MessageStatus.Delivered
                                 else -> MessageStatus.Sent
                             }
                         )
@@ -347,6 +348,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                             } else {
                                 _typingUsers.value -= event.typing.sender_uin
                             }
+                        }
+                        is WsEvent.MessageDelivered -> {
+                            val myUin = Prefs.getUin(ctx)
+                            // event.chatUin = receiver (the one who got the message = the other side)
+                            msgDao.markDeliveredUntil(event.chatUin, event.msgTime)
                         }
                         is WsEvent.ReadReceiptReceived -> {
                             // event.receiverUin = author of the messages that got read
