@@ -17,6 +17,7 @@ data class MessageEntity(
     val timestamp: Long,
     val isOutgoing: Boolean,
     val isE2E: Boolean = true,
+    val isDelivered: Boolean = false,
     val isRead: Boolean = false,
     val isEdited: Boolean = false
 )
