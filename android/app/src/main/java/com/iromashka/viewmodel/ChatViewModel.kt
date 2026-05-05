@@ -934,12 +934,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun addContact(uin: Long, nickname: String) {
         viewModelScope.launch {
             contactDao.insert(ContactEntity(uin, nickname))
+            Prefs.setContactNickname(ctx, uin, nickname)
         }
     }
 
     fun renameContact(uin: Long, nickname: String) {
         viewModelScope.launch {
             contactDao.renameByUin(uin, nickname.trim())
+            Prefs.setContactNickname(ctx, uin, nickname.trim())
         }
     }
 
