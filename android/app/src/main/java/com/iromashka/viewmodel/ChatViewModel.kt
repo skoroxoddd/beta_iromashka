@@ -704,14 +704,37 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 val recipPub = CryptoManager.importPublicKey(pubKeyB64)
                 val ciphertext = CryptoManager.encryptMessage(payloadText, recipPub)
 
+                val nowMs = System.currentTimeMillis()
+
                 wsClient?.sendMessage(WsEnvelope(
                     sender_uin = myUin,
                     receiver_uin = toUin,
                     ciphertext = ciphertext,
-                    timestamp = 0
+                    timestamp = nowMs
                 ))
 
-                val nowMs = System.currentTimeMillis()
+                // Encrypt for self (sender_ciphertext) so PWA/other devices can decrypt outgoing history
+                val myPubKeyB64 = Prefs.getPubKey(ctx)
+                if (myPubKeyB64.isNotEmpty()) {
+                    runCatching {
+                        val myPub = CryptoManager.importPublicKey(myPubKeyB64)
+                        val senderCiphertext = CryptoManager.encryptMessage(payloadText, myPub)
+                        api.saveSyncedMessage(
+                            "Bearer $token",
+                            com.iromashka.network.SaveSyncedMessageRequest(
+                                sender_uin = myUin,
+                                receiver_uin = toUin,
+                                ciphertext = ciphertext,
+                                sender_ciphertext = senderCiphertext,
+                                timestamp = nowMs
+                            )
+                        )
+                        android.util.Log.d("ChatVM", "Saved sender_ciphertext for sync to $toUin")
+                    }.onFailure { e ->
+                        android.util.Log.w("ChatVM", "Failed to save sender_ciphertext: ${e.message}")
+                    }
+                }
+
                 msgDao.insertMessage(MessageEntity(
                     chatUin = toUin,
                     senderUin = myUin,
@@ -724,12 +747,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 android.util.Log.d("ChatVM", "Inserted local msg to $toUin at $nowMs")
                 _scrollToBottom.value = System.currentTimeMillis()
                 if (ttlSec > 0) scheduleTtlDelete(toUin, nowMs, ttlSec)
-                // NB: server already calls save_synced_message inside WS Message handler
-                // (websocket.rs MSG handler). Don't double-save from client — иначе в
-                // synced_messages две строки с разными timestamp (server now_millis vs
-                // client now), и при многоустройственном sync'е приёмник получает дубль.
-                // Sender self-archive через api.saveSyncedMessage потеряется — это
-                // приемлемо: текст уже в локальной БД отправителя.
             }.onFailure { err ->
                 android.util.Log.e("ChatVM", "SendMessage failed: ${err.message}")
                 _wsConnected.value = false
@@ -1001,3 +1018,4 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         disconnectWs()
     }
 }
+
