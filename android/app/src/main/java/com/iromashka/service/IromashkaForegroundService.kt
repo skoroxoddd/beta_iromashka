@@ -146,21 +146,40 @@ class IromashkaForegroundService : Service() {
         val env = tryParseEnvelope(text)
         if (env != null && myPrivKey != null) {
             val pt = runCatching { CryptoManager.decryptMessage(env.ciphertext, myPrivKey!!) }.getOrNull() ?: ""
-            if (pt.isNotEmpty()) showMsgNotif(env.sender_uin, pt)
+            if (pt.isNotEmpty()) {
+                val senderName = Prefs.getContactNickname(this, env.sender_uin)
+                    ?: "UIN ${env.sender_uin}"
+                showMsgNotif(env.sender_uin, senderName, pt)
+            }
         }
     }
 
     private fun tryParseEnvelope(text: String): WsEnvelope? =
         runCatching { gson.fromJson(text, WsEnvelope::class.java) }.getOrNull()?.takeIf { it.sender_uin != 0L && it.ciphertext.isNotEmpty() }
 
-    private fun showMsgNotif(fromUin: Long, text: String) {
+    private fun showMsgNotif(fromUin: Long, senderName: String, text: String) {
+        // Extract display text (strip TTL envelope if present)
+        val displayText = runCatching {
+            val j = org.json.JSONObject(text)
+            j.optString("t", text)
+        }.getOrDefault(text)
+
         val ch = NotificationCompat.Builder(this, MSG_CHANNEL_ID)
-            .setContentTitle("Сообщение от $fromUin")
-            .setContentText(text.take(100))
+            .setContentTitle(senderName)
+            .setContentText(displayText.take(100))
             .setSmallIcon(android.R.drawable.ic_dialog_email)
-            .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            .setAutoCancel(true).setDefaults(NotificationCompat.DEFAULT_ALL)
-        getSystemService(NotificationManager::class.java).notify(MSG_NOTIF_ID, ch.build())
+            .setContentIntent(PendingIntent.getActivity(
+                this, fromUin.toInt(),
+                Intent(this, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    putExtra("open_chat_uin", fromUin)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            ))
+            .setAutoCancel(true)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+        getSystemService(NotificationManager::class.java)
+            .notify(MSG_NOTIF_ID + fromUin.toInt() % 1000, ch.build())
     }
 
     private fun createChannels() {
