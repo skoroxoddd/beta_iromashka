@@ -55,7 +55,11 @@ class MainActivity : FragmentActivity() {
 
         setContent {
             AppTheme {
-                IcqNavHost(authVm = authVm, chatVm = chatVm)
+                IcqNavHost(
+                    authVm = authVm,
+                    chatVm = chatVm,
+                    onStartBackgroundService = { pin -> startBackgroundService(pin) }
+                )
             }
         }
     }
@@ -93,7 +97,11 @@ class MainActivity : FragmentActivity() {
 }
 
 @Composable
-fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
+fun IcqNavHost(
+    authVm: AuthViewModel,
+    chatVm: ChatViewModel,
+    onStartBackgroundService: (String) -> Unit
+) {
     val ctx = LocalContext.current
     val navController = rememberNavController()
 
@@ -126,7 +134,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                     chatVm.init(pin) { ok ->
                         if (ok) {
                             chatVm.connectWs()
-                            startBackgroundService(pin)
+                            onStartBackgroundService(pin)
                             if (activity != null) maybeOfferBiometricEnroll(activity, ctx, pin, authVm)
                         }
                     }
@@ -294,7 +302,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                         chatVm.init(pin) { ok ->
                             if (ok) {
                                 chatVm.connectWs()
-                                startBackgroundService(pin)
+                                onStartBackgroundService(pin)
                                 if (activity != null) maybeOfferBiometricEnroll(activity, ctx, pin, authVm)
                                 navController.navigate("contacts") {
                                     popUpTo("pin_unlock") { inclusive = true }
@@ -306,7 +314,7 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                         chatVm.initWithServerRecovery(pin) { ok ->
                             if (ok) {
                                 chatVm.connectWs()
-                                startBackgroundService(pin)
+                                onStartBackgroundService(pin)
                                 if (activity != null) maybeOfferBiometricEnroll(activity, ctx, pin, authVm)
                                 navController.navigate("contacts") {
                                     popUpTo("pin_unlock") { inclusive = true }
