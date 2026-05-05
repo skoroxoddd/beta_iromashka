@@ -23,6 +23,7 @@ sealed class WsEvent {
     data class TypingReceived(val typing: com.iromashka.model.TypingEvent) : WsEvent()
     data class UserStatusReceived(val uin: Long, val status: String) : WsEvent()
     data class PubkeyChanged(val uin: Long) : WsEvent()
+    data class MessageDelivered(val chatUin: Long, val msgTime: Long) : WsEvent()
     data class ReadReceiptReceived(val senderUin: Long, val receiverUin: Long, val readUntil: Long) : WsEvent()
     data class MessageDeleted(val senderUin: Long, val receiverUin: Long, val timestamp: Long) : WsEvent()
     data class MessageEdited(val senderUin: Long, val receiverUin: Long, val timestamp: Long, val ciphertext: String) : WsEvent()
@@ -346,6 +347,15 @@ class WsClient(
                 if (obj.optString("sys") == "message_edited") {
                     val su = obj.optLong("sender_uin", 0L); val ru = obj.optLong("receiver_uin", 0L); val ts = obj.optLong("timestamp", 0L); val ct = obj.optString("ciphertext", "")
                     if (ts != 0L) scope.launch { _events.emit(WsEvent.MessageEdited(su, ru, ts, ct)) }
+                    return
+                }
+                // MsgAck (delivered): {"sender_uin":...,"receiver_uin":...,"msg_time":...,"status":"Delivered"}
+                if (obj.has("msg_time") && obj.has("status") && obj.optString("status") == "Delivered") {
+                    val chatUin = obj.optLong("sender_uin", 0L)
+                    val msgTime = obj.optLong("msg_time", 0L)
+                    if (chatUin != 0L && msgTime != 0L) {
+                        scope.launch { _events.emit(WsEvent.MessageDelivered(chatUin, msgTime)) }
+                    }
                     return
                 }
                 // ReadReceipt frames are JSON `{sender_uin,receiver_uin,read_until}` — no `type`/`sys`.
