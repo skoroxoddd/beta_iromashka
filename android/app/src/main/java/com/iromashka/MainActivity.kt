@@ -82,10 +82,10 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun startBackgroundService() {
+    private fun startBackgroundService(pin: String = "") {
         if (!Prefs.isLoggedIn(this)) return
         runCatching {
-            val intent = com.iromashka.service.IromashkaForegroundService.startIntent(this)
+            val intent = com.iromashka.service.IromashkaForegroundService.startIntent(this, pin)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
             else startService(intent)
         }
@@ -123,11 +123,10 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                 onSuccess = { _, pin ->
                     sessionPin = pin
                     val activity = ctx as? FragmentActivity
-                    // Init E2E keys and start WS right after login
                     chatVm.init(pin) { ok ->
                         if (ok) {
                             chatVm.connectWs()
-                            // Offer biometric enrollment if available and not yet asked
+                            startBackgroundService(pin)
                             if (activity != null) maybeOfferBiometricEnroll(activity, ctx, pin, authVm)
                         }
                     }
@@ -292,23 +291,22 @@ fun IcqNavHost(authVm: AuthViewModel, chatVm: ChatViewModel) {
                 onUnlock = { pin ->
                     val wrappedPriv = Prefs.getWrappedPriv(ctx)
                     if (wrappedPriv.isNotEmpty()) {
-                        // Normal path: key is local
                         chatVm.init(pin) { ok ->
                             if (ok) {
                                 chatVm.connectWs()
-                                // Если биометрия не включена — предложим (cooldown 24h в Prefs).
+                                startBackgroundService(pin)
                                 if (activity != null) maybeOfferBiometricEnroll(activity, ctx, pin, authVm)
                                 navController.navigate("contacts") {
                                     popUpTo("pin_unlock") { inclusive = true }
                                 }
                             }
                         }
-                        true // don't show error immediately — result comes async
+                        true
                     } else {
-                        // Key was lost (reinstall/EncryptedSharedPreferences cleared) — recover from server
                         chatVm.initWithServerRecovery(pin) { ok ->
                             if (ok) {
                                 chatVm.connectWs()
+                                startBackgroundService(pin)
                                 if (activity != null) maybeOfferBiometricEnroll(activity, ctx, pin, authVm)
                                 navController.navigate("contacts") {
                                     popUpTo("pin_unlock") { inclusive = true }
