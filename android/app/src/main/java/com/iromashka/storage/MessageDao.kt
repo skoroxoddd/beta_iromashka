@@ -24,6 +24,9 @@ interface MessageDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMessage(msg: MessageEntity): Long
 
+    @Query("UPDATE messages SET isDelivered = 1 WHERE chatUin = :chatUin AND isOutgoing = 1 AND timestamp <= :until")
+    suspend fun markDeliveredUntil(chatUin: Long, until: Long)
+
     @Query("UPDATE messages SET isRead = 1 WHERE chatUin = :chatUin AND isOutgoing = 1 AND timestamp <= :until")
     suspend fun markReadUntil(chatUin: Long, until: Long)
 
