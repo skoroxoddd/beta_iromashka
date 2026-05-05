@@ -161,6 +161,13 @@ object Prefs {
             .apply()
     }
 
+    // Contact nicknames cache for ForegroundService notifications
+    fun getContactNickname(ctx: Context, uin: Long): String? =
+        simplePrefs(ctx).getString("contact_nick_$uin", null)
+    fun setContactNickname(ctx: Context, uin: Long, nickname: String) {
+        simplePrefs(ctx).edit().putString("contact_nick_$uin", nickname).apply()
+    }
+
     // Theme
     fun getTheme(ctx: Context): String = simplePrefs(ctx).getString("theme", "Light") ?: "Light"
     fun setTheme(ctx: Context, theme: String) {
